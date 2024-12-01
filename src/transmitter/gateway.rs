@@ -32,7 +32,11 @@ impl Gateway {
                     },
                     None => {
                         let nack_type = NackType::ErrorInRouting(*next_node);
-                        let _ = self.send_error_packet_to_receiver(&packet, nack_type.clone());
+                        // send error in routing to receiver to handle a possible network crash or wrong routing header
+                        match self.send_nack_packet_to_receiver(&packet, nack_type.clone()) {
+                            Ok(()) => {},
+                            Err(error) => panic!("Gateway to receiver internal channel is disconnected: {error:?}"), // TODO: document this panic
+                        }
                         Err(nack_type)
                     }
                 }
@@ -41,9 +45,12 @@ impl Gateway {
                 // if the match expression returns None, it means that the current node (i.e. server)
                 // is the designed destination
                 // so, forward the packet to Receiver service to handle that logic
-                let _ = self.receiver_channel.try_send(packet);
-                Ok(())
+                match self.receiver_channel.try_send(packet) { // TODO: consider add panic!() if the receiver channel is disconnected, which is a state that cannot be recovered
+                    Ok(()) => Ok(()),
+                    Err(error) => panic!("Gateway to receiver internal channel is disconnected: {error:?}"), // TODO: document this panic
+                }
 
+                // this logic should be handled by receiver
                 // let nack_type = NackType::UnexpectedRecipient(self.node_id);
                 // let _ = self.send_error_packet_to_receiver(&packet, nack_type.clone());
                 // Err(nack_type)
@@ -51,7 +58,7 @@ impl Gateway {
         }
     }
 
-    fn send_error_packet_to_receiver(&self, packet: &Packet, nack_type: NackType) -> Result<(), TrySendError<Packet>> {
+    fn send_nack_packet_to_receiver(&self, packet: &Packet, nack_type: NackType) -> Result<(), TrySendError<Packet>> {
         let nack = Nack {
             fragment_index: match &packet.pack_type {
                 PacketType::MsgFragment(fragment) => {
@@ -158,7 +165,7 @@ mod test {
             routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![1, 2, 3, 4] },
             session_id: 0,
         };
-        let result = gateway.send_error_packet_to_receiver(&packet, NackType::Dropped);
+        let result = gateway.send_nack_packet_to_receiver(&packet, NackType::Dropped);
         match result {
             Ok(()) => assert!(true),
             Err(_error) => assert!(false),
