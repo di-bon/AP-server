@@ -1,17 +1,18 @@
 mod storer;
 
+use crate::listener::storer::Storer;
+use crossbeam_channel::{select, Receiver, Sender};
 use std::collections::HashMap;
-use crossbeam_channel::{Sender, Receiver, select};
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet, PacketType};
-use crate::listener::storer::Storer;
 
 /*
-    TODO:
-    - reassemble fragments
-    - forward reassembled message to server logic
-    - maybe add commands?
- */
+   TODO:
+   - reassemble fragments: X
+   - forward reassembled message to server logic: X
+   - maybe add commands?
+   - write tests
+*/
 
 struct Listener {
     node_id: NodeId,
@@ -23,7 +24,7 @@ struct Listener {
     server_logic_channel: Sender<Packet>, // this should only transmit reassembled messages -> its type is high level message, not packet!
     // drone(s) -> listener
     drone_channel: Receiver<Packet>,
-    storers: HashMap<u64, Storer>
+    storers: HashMap<u64, Storer>,
 }
 
 impl Listener {
@@ -37,9 +38,9 @@ impl Listener {
         Self {
             node_id,
             tx_sender,
+            tx_receiver,
             server_logic_channel,
             drone_channel,
-            tx_receiver,
             storers: Default::default(),
         }
     }
@@ -60,6 +61,12 @@ impl Listener {
                 recv(self.tx_receiver) -> packet => {
                     match packet {
                         Ok(packet) => {
+                            if matches!(packet.pack_type, PacketType::MsgFragment(_)) {
+                                log::warn!("Received a message fragment from self.tx_receiver. This should not happen. Ignoring fragment");
+                                continue;
+                            }
+                            // this kind of packets (ACKs, NACKs, FloodRequest, FloodResponse) should be directly
+                            // forwarded to transmitter to be processed
                             self.forward_packet_to_transmitter(packet);
                         },
                         Err(err) => {
@@ -77,11 +84,11 @@ impl Listener {
     }
 
     fn store_fragment(&mut self, session_id: u64, fragment: Fragment) {
-        let mut storer = self.storers.get_mut(&session_id);
+        let storer = self.storers.get_mut(&session_id);
         match storer {
             Some(storer) => {
                 storer.insert_fragment(fragment);
-            },
+            }
             None => {
                 let storer = Storer::new_from_fragment(fragment);
                 self.storers.insert(session_id, storer);
@@ -93,19 +100,42 @@ impl Listener {
         match packet.pack_type {
             PacketType::MsgFragment(fragment) => {
                 let session_id = packet.session_id;
-                self.store_fragment(packet.session_id, fragment);
+                self.store_fragment(session_id, fragment);
+                let storer = self.storers.get(&session_id);
+                match storer {
+                    Some(storer) => {
+                        if storer.is_ready() {
+                            let fragments = storer.get_fragments();
+                            // TODO: call assembler to get a HL message
+                            /*
+                            TODO: fix this placeholder code with appropriate server_logic_channel message types
+                            match self.server_logic_channel.send() {
+                                Ok(()) => {
+                                    self.storers.remove(&session_id);
+                                },
+                                Err(err) => {
+                                    panic!("Listener cannot forward messages to server logic");
+                                }
+                            }
+                             */
+                        }
+                    }
+                    None => {
+                        // TODO: maybe panic?
+                        log::warn!("Storer for session {session_id} not found. At this point however it should exist");
+                    }
+                }
+
                 // refactor this
+                /*
                 match self.check_storer(session_id) {
                     Some(true) => {
-                        let fragments = self
-                            .storers
-                            .get(&session_id)
-                            .unwrap()
-                            .get_fragments();
+                        let fragments = self.storers.get(&session_id).unwrap().get_fragments();
                     }
                     _ => {}
                 }
-            },
+                */
+            }
             PacketType::Nack(_)
             | PacketType::Ack(_)
             | PacketType::FloodRequest(_)
@@ -117,7 +147,7 @@ impl Listener {
 
     fn forward_packet_to_transmitter(&self, packet: Packet) {
         match self.tx_sender.send(packet) {
-            Ok(()) => {},
+            Ok(()) => {}
             Err(err) => {
                 panic!("Listener cannot send internal message to transmitter");
             }
@@ -143,7 +173,7 @@ mod tests {
             tx_sender,
             server_logic_sender,
             drones_receiver,
-            tx_receiver
+            tx_receiver,
         );
 
         let (tx_sender, tx_receiver) = unbounded::<Packet>();
@@ -172,13 +202,11 @@ mod tests {
             tx_sender,
             server_logic_sender,
             drones_receiver,
-            tx_receiver.clone()
+            tx_receiver.clone(),
         );
 
         let packet = Packet {
-            pack_type: PacketType::Ack(Ack {
-                fragment_index: 0,
-            }),
+            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
                 hops: vec![],
@@ -189,9 +217,7 @@ mod tests {
         listener.forward_packet_to_transmitter(packet);
 
         let expected = Packet {
-            pack_type: PacketType::Ack(Ack {
-                fragment_index: 0,
-            }),
+            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
                 hops: vec![],
