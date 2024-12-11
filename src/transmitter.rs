@@ -16,12 +16,12 @@ mod gateway;
 #[derive(Debug)]
 enum Command {
     Resend(u64),
-    Confirmed,
+    Confirmed(u64),
 }
 
 struct Transmitter<'a> {
     receiver_channel: Receiver<Nack>,
-    server_logic_channel: Receiver<Packet>,
+    server_logic_channel: Receiver<Packet>, // HL message!
     network_controller: NetworkController<'a>,
     transmission_handler: Rc<TransmissionHandler<'a>>,
     command_channel: Sender<Command>,
