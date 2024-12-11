@@ -15,10 +15,14 @@ use crate::listener::storer::Storer;
 
 struct Listener {
     node_id: NodeId,
+    // listener -> transmitter
     tx_sender: Sender<Packet>, // this should only transmit packets of all types but PacketType::MsgFragment(Fragment)
+    // transmitter -> listener
+    tx_receiver: Receiver<Packet>, // internal channel for error propagation
+    // listener -> server_logic
     server_logic_channel: Sender<Packet>, // this should only transmit reassembled messages -> its type is high level message, not packet!
+    // drone(s) -> listener
     drone_channel: Receiver<Packet>,
-    tx_receiver: Receiver<Packet>,
     storers: HashMap<u64, Storer>
 }
 
@@ -123,9 +127,10 @@ impl Listener {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crossbeam_channel::unbounded;
-    use wg_2024::packet::Packet;
-    use crate::listener::Listener;
+    use wg_2024::network::SourceRoutingHeader;
+    use wg_2024::packet::{Ack, Packet, PacketType};
 
     #[test]
     fn initialize() {
@@ -154,5 +159,56 @@ mod tests {
         };
 
         assert_eq!(listener.node_id, expected.node_id);
+    }
+
+    #[test]
+    fn forward_packet_to_transmitter_ok() {
+        let (tx_sender, tx_receiver) = unbounded::<Packet>();
+        let (_drones_sender, drones_receiver) = unbounded::<Packet>();
+        let (server_logic_sender, _server_logic_receiver) = unbounded::<Packet>();
+
+        let listener = Listener::new(
+            1,
+            tx_sender,
+            server_logic_sender,
+            drones_receiver,
+            tx_receiver.clone()
+        );
+
+        let packet = Packet {
+            pack_type: PacketType::Ack(Ack {
+                fragment_index: 0,
+            }),
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![],
+            },
+            session_id: 0,
+        };
+
+        listener.forward_packet_to_transmitter(packet);
+
+        let expected = Packet {
+            pack_type: PacketType::Ack(Ack {
+                fragment_index: 0,
+            }),
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![],
+            },
+            session_id: 0,
+        };
+
+        select! {
+            recv(tx_receiver) -> packet => {
+                if let Ok(packet) = packet {
+                    assert_eq!(packet, expected);
+                    return;
+                } else {
+                    assert!(false);
+                }
+            }
+        }
+        assert!(false);
     }
 }
