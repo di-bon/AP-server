@@ -42,7 +42,8 @@ impl Storer {
 
     /// Returns a Vec<Fragment> containing all the received fragments
     pub(super) fn get_fragments(&self) -> Vec<Fragment> {
-        let mut vector = self.fragments
+        let mut vector = self
+            .fragments
             .iter()
             .map(|(_fragment_index, fragment)| fragment.clone())
             .collect::<Vec<Fragment>>();
@@ -53,9 +54,9 @@ impl Storer {
 
 #[cfg(test)]
 mod test {
+    use crate::listener::storer::Storer;
     use std::collections::HashMap;
     use wg_2024::packet::Fragment;
-    use crate::listener::storer::Storer;
 
     #[test]
     fn initialize_new() {
