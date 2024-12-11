@@ -9,3 +9,4 @@ wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git", features = ["
 tokio = { version = "1.41.1", features = ["time", "rt", "rt-multi-thread", "macros", "sync"] }
 futures = "0.3.31"
 log = "0.4.22"
+rand = "0.9.0-beta.1"
