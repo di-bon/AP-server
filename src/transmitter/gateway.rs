@@ -142,12 +142,7 @@ impl Gateway {
             pack_type: PacketType::Nack(nack),
         };
 
-        match self.listener_channel.send(packet) {
-            Ok(()) => {},
-            Err(_err) => {
-                panic!("Gateway cannot communicate with listener");
-            }
-        }
+        self.send_to_listener(packet);
 
         /*
         let nack = Nack {
@@ -169,6 +164,15 @@ impl Gateway {
         };
         self.receiver_channel.try_send(packet)
          */
+    }
+
+    pub fn send_to_listener(&self, packet: Packet) {
+        match self.listener_channel.send(packet) {
+            Ok(()) => {},
+            Err(_err) => {
+                panic!("Gateway cannot communicate with listener");
+            }
+        }
     }
 
     fn add_neighbor(&mut self, node_id: NodeId, channel: Sender<Packet>) {

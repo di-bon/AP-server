@@ -74,7 +74,7 @@ impl Transmitter {
                             PacketType::FloodResponse(flood_response) => {
                                 // if a flood response is received, update the network controller
                             },
-                            PacketType::MsgFragment(fragment) => {
+                            PacketType::MsgFragment(ref fragment) => {
                                 // if a fragment is received, send the ack for it back
                                 let source = match packet.routing_header.source() {
                                     Some(source) => {
@@ -97,6 +97,7 @@ impl Transmitter {
                                         // the flood has not yet been completed.
                                         // TODO: handle this case - maybe just send it back to
                                         // listener and continue?
+                                        self.gateway.send_to_listener(packet);
                                         continue;
                                     }
                                 };

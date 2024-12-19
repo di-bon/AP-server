@@ -98,7 +98,7 @@ impl Listener {
 
     fn process_drone_packet(&mut self, packet: Packet) {
         match packet.pack_type {
-            PacketType::MsgFragment(fragment) => {
+            PacketType::MsgFragment(ref fragment) => {
                 let session_id = packet.session_id;
                 match self.tx_sender.send(packet.clone()) {
                     Ok(()) => {}
@@ -107,7 +107,7 @@ impl Listener {
                     }
                 }
 
-                self.store_fragment(session_id, fragment);
+                self.store_fragment(session_id, fragment.clone());
                 let storer = self.storers.get(&session_id);
                 match storer {
                     Some(storer) => {
