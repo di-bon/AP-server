@@ -7,15 +7,15 @@ use wg_2024::packet::{Nack, NackType, Packet, PacketType};
 pub struct Gateway {
     node_id: NodeId,
     neighbors: HashMap<NodeId, Sender<Packet>>,
-    receiver_channel: Sender<Packet>,
+    listener_channel: Sender<Packet>,
 }
 
 impl Gateway {
-    pub fn new(node_id: NodeId, neighbors: HashMap<NodeId, Sender<Packet>>, receiver_channel: Sender<Packet>) -> Self {
+    pub fn new(node_id: NodeId, neighbors: HashMap<NodeId, Sender<Packet>>, listener_channel: Sender<Packet>) -> Self {
         Self {
             node_id,
             neighbors,
-            receiver_channel,
+            listener_channel,
         }
     }
 
@@ -142,7 +142,7 @@ impl Gateway {
             pack_type: PacketType::Nack(nack),
         };
 
-        match self.receiver_channel.send(packet) {
+        match self.listener_channel.send(packet) {
             Ok(()) => {},
             Err(_err) => {
                 panic!("Gateway cannot communicate with listener");
