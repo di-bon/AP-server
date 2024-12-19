@@ -32,7 +32,7 @@ impl NetworkController {
         self.gateway.send_flood(flood_request);
     }
 
-    fn get_path(&self, to: NodeId) -> Vec<NodeId> {
+    pub fn get_path(&self, to: NodeId) -> Option<Vec<NodeId>> {
         // TODO: call Dijkstra's (or any other) algorithm to find the beset route.
         // Use also estimated pdr to get best route
         todo!()
