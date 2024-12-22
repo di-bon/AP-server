@@ -4,7 +4,7 @@ use std::rc::Rc;
 use crossbeam_channel::Sender;
 use rand::Rng;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{FloodRequest, NodeType, Packet};
+use wg_2024::packet::{FloodRequest, FloodResponse, NodeType, Packet};
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::transmission_handler::TransmissionHandler;
 
@@ -35,6 +35,10 @@ impl NetworkController {
     pub fn get_path(&self, to: NodeId) -> Option<Vec<NodeId>> {
         // TODO: call Dijkstra's (or any other) algorithm to find the beset route.
         // Use also estimated pdr to get best route
+        todo!()
+    }
+
+    pub fn update_topology(&self, flood_response: FloodResponse) {
         todo!()
     }
 }
