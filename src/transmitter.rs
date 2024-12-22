@@ -1,12 +1,9 @@
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::mpsc;
-use crossbeam_channel::{select, Receiver, Sender};
-use tokio::task::JoinHandle;
+use crossbeam_channel::{select, Receiver, SendError, Sender};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, Nack, NackType, Packet, PacketType};
 use crate::transmitter::network_controller::NetworkController;
-use tokio::time::{sleep, Duration};
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::transmission_handler::TransmissionHandler;
 
@@ -29,7 +26,7 @@ struct Transmitter {
     server_logic_channel: Receiver<Packet>, // HL message!
     network_controller: NetworkController,
     // transmitter -> transmission handlers
-    transmission_handlers: HashMap<u64, (Sender<Command>, TransmissionHandler)>,
+    transmission_handlers: HashMap<u64, Sender<Command>>,
     // server -> drones - just for gateway initialisation
     connected_drones: HashMap<NodeId, Receiver<Packet>>,
     // simulation_controller_channel: Receiver<Packet> // TODO: this channel needs to be updated to receive commands - maybe it is just useless?
@@ -42,7 +39,7 @@ impl Transmitter {
         listener_channel: Receiver<Packet>,
         server_logic_channel: Receiver<Packet>,
         network_controller: NetworkController,
-        transmission_handlers: HashMap<u64, (Sender<Command>, TransmissionHandler)>,
+        transmission_handlers: HashMap<u64, Sender<Command>>,
         connected_drones: HashMap<NodeId, Receiver<Packet>>,
         gateway: Rc<Gateway>,
     ) -> Self {
@@ -90,10 +87,11 @@ impl Transmitter {
                 // it, which means updating the transmission window and/or terminating
                 let session_id = packet.session_id;
                 let channel = match self.transmission_handlers.get(&session_id) {
-                    Some((channel, _handler)) => {
+                    Some(channel) => {
                         channel
                     },
                     None => {
+                        // TODO: review code below
                         // if there is no entry for the packet session_id, the ack
                         // can just be ignored? Or should it send a Nack::UnexpectedRecipient?
                         let source = match packet.routing_header.source() {
@@ -132,6 +130,24 @@ impl Transmitter {
             PacketType::Nack(nack) => {
                 // if a nack is received, tell the transmission_handler to send
                 // the required fragment again
+                let session_id = packet.session_id;
+                let fragment_index = nack.fragment_index;
+                let handler_channel = match self.transmission_handlers.get(&session_id) {
+                    Some(channel) => {
+                        channel
+                    },
+                    None => {
+                        // TODO: what to do here? continue?
+                        panic!("no handler found for the required session_id");
+                    },
+                };
+                match handler_channel.send(Command::Resend(fragment_index)) {
+                    Ok(()) => {},
+                    Err(err) => {
+                        // TODO: ignore this?
+                        panic!("Cannot communicate with handler");
+                    }
+                }
             },
             PacketType::FloodRequest(flood_request) => {
                 // if a flood request is received, send a flood_response
