@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use crossbeam_channel::{SendError, Sender, TrySendError};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{Nack, NackType, Packet, PacketType};
+use wg_2024::packet::{FloodResponse, Nack, NackType, Packet, PacketType};
 
 #[derive(Debug)]
 pub struct Gateway {
@@ -33,6 +33,31 @@ impl Gateway {
                 self.send_nack_packet_to_receiver(&packet, NackType::ErrorInRouting(next_hop));
             }
         }
+    }
+
+    pub fn send_flood_response(&self, flood_response: FloodResponse, session_id: u64) {
+        let forward_to = match flood_response.path_trace.iter().skip(1).next() {
+            Some((node_id, _node_type)) => *node_id,
+            None => {
+                // TODO: what to do?
+                panic!("received a flood request with no path trace");
+            }
+        };
+        let wrapper_packet = Packet {
+            routing_header: Default::default(),
+            session_id,
+            pack_type: PacketType::FloodResponse(flood_response),
+        };
+        let channel = match self.neighbors.get(&forward_to) {
+            Some(channel) => {
+                channel
+            },
+            None => {
+                // TODO: update panic message
+                panic!("No channel found");
+            },
+        };
+        self.send_on_channel_checked(channel, wrapper_packet, forward_to);
     }
 
     // TODO: maybe this method is kinda useless, it is the same thing of calling channel.send directly

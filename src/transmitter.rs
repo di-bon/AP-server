@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use crossbeam_channel::{select, Receiver, SendError, Sender};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{Ack, Nack, NackType, Packet, PacketType};
+use wg_2024::packet::{Ack, FloodResponse, Nack, NackType, NodeType, Packet, PacketType};
 use crate::transmitter::network_controller::NetworkController;
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::transmission_handler::TransmissionHandler;
@@ -151,6 +151,15 @@ impl Transmitter {
             },
             PacketType::FloodRequest(flood_request) => {
                 // if a flood request is received, send a flood_response
+                let session_id = packet.session_id;
+                let mut path_trace = flood_request.path_trace;
+                path_trace.push((self.node_id, NodeType::Server));
+                path_trace.reverse();
+                let flood_response = FloodResponse {
+                    flood_id: flood_request.flood_id,
+                    path_trace,
+                };
+                self.gateway.send_flood_response(flood_response, session_id);
             },
             PacketType::FloodResponse(flood_response) => {
                 // if a flood response is received, update the network controller
