@@ -14,6 +14,10 @@ use wg_2024::packet::{Fragment, Packet, PacketType};
    - write tests
 */
 
+pub enum ListenerCommand {
+    Quit
+}
+
 struct Listener {
     node_id: NodeId,
     // listener -> transmitter
@@ -24,7 +28,7 @@ struct Listener {
     server_logic_channel: Sender<Packet>, // this should only transmit reassembled messages -> its type is high level message, not packet!
     // drone(s) -> listener
     drone_channel: Receiver<Packet>,
-    command_channel: Receiver<bool>,
+    command_channel: Receiver<ListenerCommand>,
     storers: HashMap<u64, Storer>,
 }
 
@@ -34,7 +38,7 @@ impl Listener {
         tx_sender: Sender<Packet>,
         server_logic_channel: Sender<Packet>,
         drone_channel: Receiver<Packet>,
-        command_channel: Receiver<bool>,
+        command_channel: Receiver<ListenerCommand>,
         tx_receiver: Receiver<Packet>,
     ) -> Self {
         Self {
@@ -79,10 +83,10 @@ impl Listener {
                         }
                     }
                 },
-                recv(self.command_channel) -> exit => {
-                    if let Ok(exit) = exit {
-                        if exit {
-                            break;
+                recv(self.command_channel) -> command => {
+                    if let Ok(command) = command {
+                        match command {
+                            ListenerCommand::Quit => break,
                         }
                     }
                 }
@@ -197,11 +201,11 @@ mod tests {
     use wg_2024::network::SourceRoutingHeader;
     use wg_2024::packet::{Ack, Packet, PacketType};
 
-    fn create_listener_and_channels(node_id: NodeId) -> (Listener, Sender<Packet>, Receiver<Packet>, Receiver<Packet>, Sender<bool>) {
+    fn create_listener_and_channels(node_id: NodeId) -> (Listener, Sender<Packet>, Receiver<Packet>, Receiver<Packet>, Sender<ListenerCommand>) {
         let (tx_sender, tx_receiver) = unbounded::<Packet>();
         let (drones_sender, drones_receiver) = unbounded::<Packet>();
         let (server_logic_sender, server_logic_receiver) = unbounded::<Packet>();
-        let (command_tx, command_rx) = unbounded::<bool>();
+        let (command_tx, command_rx) = unbounded::<ListenerCommand>();
 
         let listener = Listener::new(
             node_id,
@@ -222,7 +226,7 @@ mod tests {
         let (tx_sender, tx_receiver) = unbounded::<Packet>();
         let (_drones_sender, drones_receiver) = unbounded::<Packet>();
         let (server_logic_sender, _server_logic_receiver) = unbounded::<Packet>();
-        let (command_tx, command_rx) = unbounded::<bool>();
+        let (command_tx, command_rx) = unbounded::<ListenerCommand>();
         let expected = Listener {
             node_id: 1,
             tx_sender,
@@ -305,7 +309,7 @@ mod tests {
         let _ = drone_tx.send(fragment_packet.clone());
 
         sleep(Duration::from_millis(200));
-        let _ = command_tx.send(true);
+        let _ = command_tx.send(ListenerCommand::Quit);
 
         let storers = listener.lock().unwrap();
 
