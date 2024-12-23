@@ -294,18 +294,20 @@ mod tests {
 
         assert_eq!(listener.lock().unwrap().storers.len(), 0);
 
+        let fragment = Fragment{
+            fragment_index: 0,
+            total_n_fragments: 2,
+            length: 80,
+            data: [0; 128],
+        };
+
         let fragment_packet = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
                 hops: vec![],
             },
             session_id: 10,
-            pack_type: PacketType::MsgFragment(Fragment{
-                fragment_index: 0,
-                total_n_fragments: 2,
-                length: 80,
-                data: [0; 128],
-            }),
+            pack_type: PacketType::MsgFragment(fragment.clone()),
         };
         let _ = drones_tx.send(fragment_packet.clone());
 
@@ -317,6 +319,10 @@ mod tests {
         assert_eq!(storers.storers.len(), 1);
         let storer = storers.storers.get(&10).unwrap();
         assert!(!storer.is_ready());
+        
+        let fragments = storer.get_fragments();
+        let expected_fragments = vec![fragment];
+        assert_eq!(fragments, expected_fragments);
     }
 
     /*
