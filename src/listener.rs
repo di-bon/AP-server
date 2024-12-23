@@ -80,11 +80,13 @@ impl Listener {
         }
     }
 
+    /// Checks the readiness for the `Storer` associated to the `session_id`. Returns `None` if there is no `Storer` associated to the given `session_id`
     fn check_storer(&self, session_id: u64) -> Option<bool> {
         let storer = self.storers.get(&session_id)?;
         Some(storer.is_ready())
     }
 
+    /// Stores a `Fragment` into the `Storer` for the given `session_id`
     fn store_fragment(&mut self, session_id: u64, fragment: Fragment) {
         let storer = self.storers.get_mut(&session_id);
         match storer {
@@ -100,6 +102,7 @@ impl Listener {
         }
     }
 
+    /// Processes a `Packet` received from the connected drones based on the `PacketType`
     fn process_drone_packet(&mut self, packet: Packet) {
         match packet.pack_type {
             PacketType::MsgFragment(ref fragment) => {
@@ -155,6 +158,9 @@ impl Listener {
         }
     }
 
+    /// Forwards a `Packet` to `Transmitter`
+    /// If a `PacketType::MsgFragment` is forwarded, the relative `ACK` will be generated and sent
+    /// If another `PacketType` is forwarded, the `Transmitter` will update the network graph accordingly
     fn forward_packet_to_transmitter(&self, packet: Packet) {
         match self.tx_sender.send(packet) {
             Ok(()) => {
