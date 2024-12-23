@@ -10,7 +10,7 @@ use wg_2024::packet::{Fragment, Packet, PacketType};
    TODO:
    - reassemble fragments: X
    - forward reassembled message to server logic: X
-   - maybe add commands?
+   - maybe add commands: X
    - write tests
 */
 
@@ -21,33 +21,34 @@ pub enum ListenerCommand {
 struct Listener {
     node_id: NodeId,
     // listener -> transmitter
-    tx_sender: Sender<Packet>, // this should only transmit packets of all types but PacketType::MsgFragment(Fragment)
+    transmitter_tx: Sender<Packet>, // this should only transmit packets of all types but PacketType::MsgFragment(Fragment)
     // transmitter -> listener
-    tx_receiver: Receiver<Packet>, // internal channel for error propagation
-    // listener -> server_logic
-    server_logic_channel: Sender<Packet>, // this should only transmit reassembled messages -> its type is high level message, not packet!
+    transmitter_rx: Receiver<Packet>, // internal channel for error propagation
+    // se -> server_logic
+    server_logic_tx: Sender<Packet>, // this should only transmit reassembled messages -> its type is high level message, not packet!
     // drone(s) -> listener
-    drone_channel: Receiver<Packet>,
-    command_channel: Receiver<ListenerCommand>,
+    drones_rx: Receiver<Packet>,
+    command_rx: Receiver<ListenerCommand>,
+    // HashMap containing all the pairs (session_id, Storer)
     storers: HashMap<u64, Storer>,
 }
 
 impl Listener {
     fn new(
         node_id: NodeId,
-        tx_sender: Sender<Packet>,
-        server_logic_channel: Sender<Packet>,
-        drone_channel: Receiver<Packet>,
-        command_channel: Receiver<ListenerCommand>,
-        tx_receiver: Receiver<Packet>,
+        transmitter_tx: Sender<Packet>,
+        transmitter_rx: Receiver<Packet>,
+        server_logic_tx: Sender<Packet>,
+        drones_rx: Receiver<Packet>,
+        command_rx: Receiver<ListenerCommand>,
     ) -> Self {
         Self {
             node_id,
-            tx_sender,
-            tx_receiver,
-            server_logic_channel,
-            drone_channel,
-            command_channel,
+            transmitter_tx,
+            transmitter_rx,
+            server_logic_tx,
+            drones_rx,
+            command_rx,
             storers: HashMap::default(),
         }
     }
@@ -55,7 +56,7 @@ impl Listener {
     fn run(&mut self) {
         loop {
             select! {
-                recv(self.drone_channel) -> packet => {
+                recv(self.drones_rx) -> packet => {
                     match packet {
                         Ok(packet) => {
                             log::info!("Received packet {packet}");
@@ -66,7 +67,7 @@ impl Listener {
                         }
                     }
                 },
-                recv(self.tx_receiver) -> packet => {
+                recv(self.transmitter_rx) -> packet => {
                     match packet {
                         Ok(packet) => {
                             log::info!("Received packet {packet}");
@@ -83,7 +84,7 @@ impl Listener {
                         }
                     }
                 },
-                recv(self.command_channel) -> command => {
+                recv(self.command_rx) -> command => {
                     if let Ok(command) = command {
                         match command {
                             ListenerCommand::Quit => break,
@@ -125,7 +126,7 @@ impl Listener {
 
                 // this communication starts the ACK generation for the received fragment.
                 // the logic is handled by the transmitter
-                match self.tx_sender.send(packet.clone()) {
+                match self.transmitter_tx.send(packet.clone()) {
                     Ok(()) => {
                         log::info!("Fragment sent to transmitter to generate its ACK packet");
                     }
@@ -176,7 +177,7 @@ impl Listener {
     /// If a `PacketType::MsgFragment` is forwarded, the relative `ACK` will be generated and sent
     /// If another `PacketType` is forwarded, the `Transmitter` will update the network graph accordingly
     fn forward_packet_to_transmitter(&self, packet: Packet) {
-        match self.tx_sender.send(packet) {
+        match self.transmitter_tx.send(packet) {
             Ok(()) => {
                 log::info!("Packet successfully forwarded to transmitter");
             }
@@ -202,38 +203,38 @@ mod tests {
     use wg_2024::packet::{Ack, Packet, PacketType};
 
     fn create_listener_and_channels(node_id: NodeId) -> (Listener, Sender<Packet>, Receiver<Packet>, Receiver<Packet>, Sender<ListenerCommand>) {
-        let (tx_sender, tx_receiver) = unbounded::<Packet>();
-        let (drones_sender, drones_receiver) = unbounded::<Packet>();
-        let (server_logic_sender, server_logic_receiver) = unbounded::<Packet>();
+        let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
+        let (drones_tx, drones_rx) = unbounded::<Packet>();
+        let (server_logic_tx, server_logic_rx) = unbounded::<Packet>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
 
         let listener = Listener::new(
             node_id,
-            tx_sender,
-            server_logic_sender,
-            drones_receiver,
+            transmitter_tx,
+            transmitter_rx.clone(),
+            server_logic_tx,
+            drones_rx,
             command_rx,
-            tx_receiver.clone(),
         );
 
-        (listener, drones_sender, server_logic_receiver, tx_receiver, command_tx)
+        (listener, drones_tx, server_logic_rx, transmitter_rx, command_tx)
     }
 
     #[test]
     fn initialize() {
-        let (listener, _, _, tx_receiver, command_tx) = create_listener_and_channels(1);
+        let (listener, _drones_tx, _server_logic_rx, transmitter_rx, command_tx) = create_listener_and_channels(1);
 
-        let (tx_sender, tx_receiver) = unbounded::<Packet>();
-        let (_drones_sender, drones_receiver) = unbounded::<Packet>();
-        let (server_logic_sender, _server_logic_receiver) = unbounded::<Packet>();
+        let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
+        let (drones_tx, drones_rx) = unbounded::<Packet>();
+        let (server_logic_tx, _server_logic_rx) = unbounded::<Packet>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
         let expected = Listener {
             node_id: 1,
-            tx_sender,
-            server_logic_channel: server_logic_sender,
-            drone_channel: drones_receiver,
-            tx_receiver,
-            command_channel: command_rx,
+            transmitter_tx,
+            server_logic_tx,
+            drones_rx,
+            transmitter_rx,
+            command_rx,
             storers: Default::default(),
         };
 
@@ -243,7 +244,7 @@ mod tests {
 
     #[test]
     fn forward_packet_to_transmitter_ok() {
-        let (listener, _, _, tx_receiver, command_tx) = create_listener_and_channels(1);
+        let (listener, _drones_tx, _server_logic_rx, transmitter_rx, command_tx) = create_listener_and_channels(1);
 
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
@@ -266,7 +267,7 @@ mod tests {
         };
 
         select! {
-            recv(tx_receiver) -> packet => {
+            recv(transmitter_rx) -> packet => {
                 if let Ok(packet) = packet {
                     assert_eq!(packet, expected);
                     return;
@@ -282,7 +283,7 @@ mod tests {
     #[test]
     #[timeout(1000)]
     fn store_fragment_successful() {
-        let (listener, drone_tx, _, tx_receiver, command_tx) = create_listener_and_channels(1);
+        let (listener, drones_tx, _server_logic_rx, _transmitter_rx, command_tx) = create_listener_and_channels(1);
         let listener = Arc::new(Mutex::new(listener));
         let listener_clone = Arc::clone(&listener);
 
@@ -306,7 +307,7 @@ mod tests {
                 data: [0; 128],
             }),
         };
-        let _ = drone_tx.send(fragment_packet.clone());
+        let _ = drones_tx.send(fragment_packet.clone());
 
         sleep(Duration::from_millis(200));
         let _ = command_tx.send(ListenerCommand::Quit);
