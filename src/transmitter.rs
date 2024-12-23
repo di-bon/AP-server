@@ -163,7 +163,7 @@ impl Transmitter {
             },
             PacketType::FloodResponse(flood_response) => {
                 // if a flood response is received, update the network controller
-                self.network_controller.update_topology(flood_response);
+                self.network_controller.update_from_flood_response(flood_response);
             },
             PacketType::MsgFragment(ref fragment) => {
                 // if a fragment is received, send back the ack for it
