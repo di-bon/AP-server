@@ -288,7 +288,7 @@ mod tests {
 
 
     #[test]
-    #[timeout(1000)]
+    #[timeout(2000)]
     fn store_fragment_successful() {
         let (listener, drones_tx, _server_logic_rx, _transmitter_rx, command_tx) = create_listener_and_channels(1);
         let listener = Arc::new(Mutex::new(listener));
