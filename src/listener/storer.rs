@@ -151,4 +151,23 @@ mod test {
         let expected = vec![fragment_0, fragment_1, fragment_2];
         assert_eq!(fragments, expected);
     }
+
+    #[test]
+    #[should_panic(expected = "fragment index 5 out of bounds")]
+    fn insert_fragment_out_of_bounds() {
+        let fragment = Fragment {
+            fragment_index: 0,
+            total_n_fragments: 2,
+            length: 128,
+            data: [0; 128],
+        };
+        let mut storer = Storer::new_from_fragment(fragment);
+        let out_of_bounds_fragment = Fragment {
+            fragment_index: 5,
+            total_n_fragments: 2,
+            length: 128,
+            data: [0; 128],
+        };
+        storer.insert_fragment(out_of_bounds_fragment);
+    }
 }
