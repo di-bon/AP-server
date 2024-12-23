@@ -3,6 +3,10 @@ mod storer;
 use crate::listener::storer::Storer;
 use crossbeam_channel::{select, Receiver, Sender};
 use std::collections::HashMap;
+use assembler::Assembler;
+use assembler::naive_assembler::NaiveAssembler;
+use messages::ChatResponse::MessageFrom;
+use messages::Message;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet, PacketType};
 
@@ -144,6 +148,9 @@ impl Listener {
                             log::info!("Storer for session {session_id} is ready for message reassemble");
                             let fragments = storer.get_fragments();
                             // TODO: call assembler to get a HL message
+                            let reassembled_message = NaiveAssembler::reassemble(&fragments);
+                            log::info!("Reassembled message in bytes: {reassembled_message:?}");
+                            // TODO: cast bytes message into a 'real' message struct
                             /*
                             TODO: fix this placeholder code with appropriate server_logic_channel message types
                             match self.server_logic_channel.send() {
@@ -319,7 +326,7 @@ mod tests {
         assert_eq!(storers.storers.len(), 1);
         let storer = storers.storers.get(&10).unwrap();
         assert!(!storer.is_ready());
-        
+
         let fragments = storer.get_fragments();
         let expected_fragments = vec![fragment];
         assert_eq!(fragments, expected_fragments);
