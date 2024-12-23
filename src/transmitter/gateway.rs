@@ -19,6 +19,7 @@ impl Gateway {
         }
     }
 
+    /// Sends a Packet to every connected neighboring node
     pub fn send_flood(&self, packet: Packet) {
         for (node_id, channel) in &self.neighbors {
             self.send_on_channel_checked(channel, packet.clone(), *node_id);
@@ -35,6 +36,7 @@ impl Gateway {
         }
     }
 
+    /// Sends a FloodResponse packet
     pub fn send_flood_response(&self, flood_response: FloodResponse, session_id: u64) {
         let forward_to = match flood_response.path_trace.iter().skip(1).next() {
             Some((node_id, _node_type)) => *node_id,
@@ -80,6 +82,8 @@ impl Gateway {
     // always 1 when receiving a packet. Also, don't make so many checks, just forward the packet
     // Also, use the send_on_channel method to further modularize the code
     // TODO: should this return a Result<(), ()> or can it just panic?
+    /// Forwards a Packet based on its SourceRoutingHeader.
+    /// It expects to receive Packets with hop_index set to 1
     pub fn forward(&self, packet: Packet) {
         let next_hop = match packet.routing_header.next_hop() {
             Some(next_hop) => { next_hop },
@@ -135,7 +139,7 @@ impl Gateway {
          */
     }
 
-    /// Sends a nack to listener. Note that the only nack that this will send are just
+    /// Sends a NACK to listener. Note that the only nack that this will send are just
     /// ErrorInRouting and (hopefully never) UnexpectedRecipient. There is no way that
     /// a Dropped or DestinationIsDrone gets sent, so there is no need to reverse the header
     /// or sending a nack for a specific fragment index
@@ -191,6 +195,7 @@ impl Gateway {
          */
     }
 
+    /// Sends a Packet to Listener
     pub fn send_to_listener(&self, packet: Packet) {
         match self.listener_channel.send(packet) {
             Ok(()) => {},
@@ -200,10 +205,13 @@ impl Gateway {
         }
     }
 
+    /// Adds a channel to the connected neighbors
     fn add_neighbor(&mut self, node_id: NodeId, channel: Sender<Packet>) {
         self.neighbors.insert(node_id, channel);
     }
 
+    // TODO: Use this function to remove crashed neighbors
+    /// Removes a channel from the connected neighbors
     fn remove_neighbor(&mut self, node_id: &NodeId) {
         self.neighbors.remove(node_id);
     }

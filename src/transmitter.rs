@@ -18,17 +18,15 @@ enum Command {
     Confirmed(u64),
 }
 
-struct Transmitter {
+pub struct Transmitter {
     node_id: NodeId,
     // listener -> transmitter
-    listener_channel: Receiver<Packet>, // receives ACKs, NACKs, FloodRequest and FloodResponse
+    listener_rx_channel: Receiver<Packet>, // receives ACKs, NACKs, FloodRequest and FloodResponse
     // server logic -> transmitter
     server_logic_channel: Receiver<Packet>, // HL message!
     network_controller: NetworkController,
     // transmitter -> transmission handlers
     transmission_handlers: HashMap<u64, Sender<Command>>,
-    // server -> drones - just for gateway initialisation
-    connected_drones: HashMap<NodeId, Receiver<Packet>>,
     // simulation_controller_channel: Receiver<Packet> // TODO: this channel needs to be updated to receive commands - maybe it is just useless?
     gateway: Rc<Gateway>,
 }
@@ -36,20 +34,20 @@ struct Transmitter {
 impl Transmitter {
     pub fn new(
         node_id: NodeId,
-        listener_channel: Receiver<Packet>,
+        listener_rx_channel: Receiver<Packet>,
+        listener_tx_channel: Sender<Packet>,
         server_logic_channel: Receiver<Packet>,
-        network_controller: NetworkController,
         transmission_handlers: HashMap<u64, Sender<Command>>,
-        connected_drones: HashMap<NodeId, Receiver<Packet>>,
-        gateway: Rc<Gateway>,
+        connected_drones: HashMap<NodeId, Sender<Packet>>,
     ) -> Self {
+        let gateway = Gateway::new(node_id, connected_drones, listener_tx_channel);
+        let gateway = Rc::new(gateway);
         Self {
             node_id,
-            listener_channel,
+            listener_rx_channel,
             server_logic_channel,
-            network_controller,
+            network_controller: NetworkController::new(node_id, gateway.clone()),
             transmission_handlers,
-            connected_drones,
             gateway,
         }
     }
@@ -57,7 +55,7 @@ impl Transmitter {
     pub fn run(&self) {
         loop {
             select! {
-                recv(self.listener_channel) -> packet => {
+                recv(self.listener_rx_channel) -> packet => {
                     if let Ok(packet) = packet {
                         self.process_packet(packet);
                     } else {
@@ -80,6 +78,7 @@ impl Transmitter {
         }
     }
 
+    /// Processes a Packet that needs to be transmitted
     fn process_packet(&self, packet: Packet) {
         match packet.pack_type {
             PacketType::Ack(ref ack) => {
