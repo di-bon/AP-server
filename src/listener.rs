@@ -55,7 +55,7 @@ impl Listener {
                             self.process_drone_packet(packet);
                         },
                         Err(err) => {
-                            panic!("Cannot receive from drones channel");
+                            panic!("Listener cannot receive packets from drones channel");
                         }
                     }
                 },
@@ -72,7 +72,7 @@ impl Listener {
                             self.forward_packet_to_transmitter(packet);
                         },
                         Err(err) => {
-                            panic!("Cannot receive from transmitter channel");
+                            panic!("Listener cannot receive packets from internal transmitter channel");
                         }
                     }
                 },
@@ -114,7 +114,7 @@ impl Listener {
                     }
                     Err(err) => {
                         log::warn!("Cannot communicate with transmitter to generate an ACK packet");
-                        panic!("Listener cannot communicate to transmitter");
+                        panic!("Listener cannot communicate with transmitter using the internal channel");
                     }
                 }
 
