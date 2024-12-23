@@ -24,6 +24,7 @@ struct Listener {
     server_logic_channel: Sender<Packet>, // this should only transmit reassembled messages -> its type is high level message, not packet!
     // drone(s) -> listener
     drone_channel: Receiver<Packet>,
+    command_channel: Receiver<bool>,
     storers: HashMap<u64, Storer>,
 }
 
@@ -33,6 +34,7 @@ impl Listener {
         tx_sender: Sender<Packet>,
         server_logic_channel: Sender<Packet>,
         drone_channel: Receiver<Packet>,
+        command_channel: Receiver<bool>,
         tx_receiver: Receiver<Packet>,
     ) -> Self {
         Self {
@@ -41,6 +43,7 @@ impl Listener {
             tx_receiver,
             server_logic_channel,
             drone_channel,
+            command_channel,
             storers: Default::default(),
         }
     }
@@ -76,6 +79,13 @@ impl Listener {
                         }
                     }
                 },
+                recv(self.command_channel) -> exit => {
+                    if let Ok(exit) = exit {
+                        if exit {
+                            break;
+                        }
+                    }
+                }
             }
         }
     }
@@ -176,53 +186,60 @@ impl Listener {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::thread::sleep;
+    use std::time::Duration;
     use super::*;
     use crossbeam_channel::unbounded;
+    use futures::task::SpawnExt;
+    use ntest::timeout;
     use wg_2024::network::SourceRoutingHeader;
     use wg_2024::packet::{Ack, Packet, PacketType};
 
-    #[test]
-    fn initialize() {
+    fn create_listener_and_channels(node_id: NodeId) -> (Listener, Sender<Packet>, Receiver<Packet>, Receiver<Packet>, Sender<bool>) {
         let (tx_sender, tx_receiver) = unbounded::<Packet>();
-        let (_drones_sender, drones_receiver) = unbounded::<Packet>();
-        let (server_logic_sender, _server_logic_receiver) = unbounded::<Packet>();
+        let (drones_sender, drones_receiver) = unbounded::<Packet>();
+        let (server_logic_sender, server_logic_receiver) = unbounded::<Packet>();
+        let (command_tx, command_rx) = unbounded::<bool>();
 
         let listener = Listener::new(
-            1,
+            node_id,
             tx_sender,
             server_logic_sender,
             drones_receiver,
-            tx_receiver,
+            command_rx,
+            tx_receiver.clone(),
         );
+
+        (listener, drones_sender, server_logic_receiver, tx_receiver, command_tx)
+    }
+
+    #[test]
+    fn initialize() {
+        let (listener, _, _, tx_receiver, command_tx) = create_listener_and_channels(1);
 
         let (tx_sender, tx_receiver) = unbounded::<Packet>();
         let (_drones_sender, drones_receiver) = unbounded::<Packet>();
         let (server_logic_sender, _server_logic_receiver) = unbounded::<Packet>();
+        let (command_tx, command_rx) = unbounded::<bool>();
         let expected = Listener {
             node_id: 1,
             tx_sender,
             server_logic_channel: server_logic_sender,
             drone_channel: drones_receiver,
             tx_receiver,
+            command_channel: command_rx,
             storers: Default::default(),
         };
 
         assert_eq!(listener.node_id, expected.node_id);
+        assert_eq!(listener.storers.len(), expected.storers.len());
     }
 
     #[test]
     fn forward_packet_to_transmitter_ok() {
-        let (tx_sender, tx_receiver) = unbounded::<Packet>();
-        let (_drones_sender, drones_receiver) = unbounded::<Packet>();
-        let (server_logic_sender, _server_logic_receiver) = unbounded::<Packet>();
-
-        let listener = Listener::new(
-            1,
-            tx_sender,
-            server_logic_sender,
-            drones_receiver,
-            tx_receiver.clone(),
-        );
+        let (listener, _, _, tx_receiver, command_tx) = create_listener_and_channels(1);
 
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
@@ -256,4 +273,50 @@ mod tests {
         }
         assert!(false);
     }
+
+
+    #[test]
+    #[timeout(1000)]
+    fn store_fragment_successful() {
+        let (listener, drone_tx, _, tx_receiver, command_tx) = create_listener_and_channels(1);
+        let listener = Arc::new(Mutex::new(listener));
+        let listener_clone = Arc::clone(&listener);
+
+        let _ = thread::spawn(move || {
+            let mut listener = listener_clone.lock().unwrap();
+            listener.run()
+        });
+
+        assert_eq!(listener.lock().unwrap().storers.len(), 0);
+
+        let fragment_packet = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![],
+            },
+            session_id: 10,
+            pack_type: PacketType::MsgFragment(Fragment{
+                fragment_index: 0,
+                total_n_fragments: 2,
+                length: 80,
+                data: [0; 128],
+            }),
+        };
+        let _ = drone_tx.send(fragment_packet.clone());
+
+        sleep(Duration::from_millis(200));
+        let _ = command_tx.send(true);
+
+        let storers = listener.lock().unwrap();
+
+        assert_eq!(storers.storers.len(), 1);
+        let storer = storers.storers.get(&10).unwrap();
+        assert!(!storer.is_ready());
+    }
+
+    /*
+     TODO: test that need to be done:
+     - receiving different types of packets from drone channel
+     - receiving different types of packets from tx channel
+    */
 }
