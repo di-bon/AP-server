@@ -32,6 +32,7 @@ impl Storer {
             // TODO: check if there is an alternative to panic maybe?
             panic!("fragment index {} out of bounds", fragment.fragment_index);
         }
+        log::info!("Storing fragment {fragment}");
         self.fragments.insert(fragment.fragment_index, fragment);
     }
 

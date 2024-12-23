@@ -51,6 +51,7 @@ impl Listener {
                 recv(self.drone_channel) -> packet => {
                     match packet {
                         Ok(packet) => {
+                            log::info!("Received packet {packet}");
                             self.process_drone_packet(packet);
                         },
                         Err(err) => {
@@ -61,6 +62,7 @@ impl Listener {
                 recv(self.tx_receiver) -> packet => {
                     match packet {
                         Ok(packet) => {
+                            log::info!("Received packet {packet}");
                             if matches!(packet.pack_type, PacketType::MsgFragment(_)) {
                                 log::warn!("Received a message fragment from self.tx_receiver. This should not happen. Ignoring fragment");
                                 continue;
@@ -87,9 +89,11 @@ impl Listener {
         let storer = self.storers.get_mut(&session_id);
         match storer {
             Some(storer) => {
+                log::info!("Storing fragment {fragment} into storer");
                 storer.insert_fragment(fragment);
             }
             None => {
+                log::info!("Creating a new storer for fragment {fragment}");
                 let storer = Storer::new_from_fragment(fragment);
                 self.storers.insert(session_id, storer);
             }
@@ -99,10 +103,17 @@ impl Listener {
     fn process_drone_packet(&mut self, packet: Packet) {
         match packet.pack_type {
             PacketType::MsgFragment(ref fragment) => {
+                log::info!("Processing a message fragment");
                 let session_id = packet.session_id;
+
+                // this communication starts the ACK generation for the received fragment.
+                // the logic is handled by the transmitter
                 match self.tx_sender.send(packet.clone()) {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        log::info!("Fragment sent to transmitter to generate its ACK packet");
+                    }
                     Err(err) => {
+                        log::warn!("Cannot communicate with transmitter to generate an ACK packet");
                         panic!("Listener cannot communicate to transmitter");
                     }
                 }
@@ -112,6 +123,7 @@ impl Listener {
                 match storer {
                     Some(storer) => {
                         if storer.is_ready() {
+                            log::info!("Storer for session {session_id} is ready for message reassemble");
                             let fragments = storer.get_fragments();
                             // TODO: call assembler to get a HL message
                             /*
@@ -132,21 +144,12 @@ impl Listener {
                         log::warn!("Storer for session {session_id} not found. At this point however it should exist");
                     }
                 }
-
-                // refactor this
-                /*
-                match self.check_storer(session_id) {
-                    Some(true) => {
-                        let fragments = self.storers.get(&session_id).unwrap().get_fragments();
-                    }
-                    _ => {}
-                }
-                */
             }
             PacketType::Nack(_)
             | PacketType::Ack(_)
             | PacketType::FloodRequest(_)
             | PacketType::FloodResponse(_) => {
+                log::info!("Forwarding a not message fragment to transmitter");
                 self.forward_packet_to_transmitter(packet);
             }
         }
@@ -154,8 +157,11 @@ impl Listener {
 
     fn forward_packet_to_transmitter(&self, packet: Packet) {
         match self.tx_sender.send(packet) {
-            Ok(()) => {}
+            Ok(()) => {
+                log::info!("Packet successfully forwarded to transmitter");
+            }
             Err(err) => {
+                log::warn!("Couldn't forward packet to transmitter");
                 panic!("Listener cannot send internal message to transmitter");
             }
         }
