@@ -1,14 +1,9 @@
-use std::cell::{Ref, RefCell};
-use std::collections::HashMap;
-use std::fmt::format;
+use std::cell::RefCell;
 use std::rc::Rc;
-use std::result;
-use crossbeam_channel::Sender;
 use rand::Rng;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{FloodRequest, FloodResponse, Nack, NackType, NodeType, Packet, PacketType};
+use wg_2024::packet::{FloodRequest, FloodResponse, NackType, NodeType, Packet, PacketType};
 use crate::transmitter::gateway::Gateway;
-use crate::transmitter::transmission_handler::TransmissionHandler;
 
 pub struct NetworkController {
     node_id: NodeId,

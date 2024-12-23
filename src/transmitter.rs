@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::rc::Rc;
-use crossbeam_channel::{select, Receiver, SendError, Sender};
+use crossbeam_channel::{select, Receiver, Sender};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodResponse, Nack, NackType, NodeType, Packet, PacketType};
 use crate::transmitter::network_controller::NetworkController;
 use crate::transmitter::gateway::Gateway;
-use crate::transmitter::transmission_handler::TransmissionHandler;
 
 mod network_controller;
 mod transmission_handler_async;
@@ -13,7 +12,7 @@ mod gateway;
 mod transmission_handler;
 
 #[derive(Debug)]
-enum Command {
+pub(crate) enum Command {
     Resend(u64),
     Confirmed(u64),
 }
@@ -21,7 +20,7 @@ enum Command {
 pub struct Transmitter {
     node_id: NodeId,
     // listener -> transmitter
-    listener_rx_channel: Receiver<Packet>, // receives ACKs, NACKs, FloodRequest and FloodResponse
+    listener_rx: Receiver<Packet>, // receives ACKs, NACKs, FloodRequest and FloodResponse
     // server logic -> transmitter
     server_logic_channel: Receiver<Packet>, // HL message!
     network_controller: NetworkController,
@@ -34,20 +33,19 @@ pub struct Transmitter {
 impl Transmitter {
     pub fn new(
         node_id: NodeId,
-        listener_rx_channel: Receiver<Packet>,
-        listener_tx_channel: Sender<Packet>,
+        listener_rx: Receiver<Packet>,
+        listener_tx: Sender<Packet>,
         server_logic_channel: Receiver<Packet>,
-        transmission_handlers: HashMap<u64, Sender<Command>>,
         connected_drones: HashMap<NodeId, Sender<Packet>>,
     ) -> Self {
-        let gateway = Gateway::new(node_id, connected_drones, listener_tx_channel);
+        let gateway = Gateway::new(node_id, connected_drones, listener_tx);
         let gateway = Rc::new(gateway);
         Self {
             node_id,
-            listener_rx_channel,
+            listener_rx,
             server_logic_channel,
             network_controller: NetworkController::new(node_id, gateway.clone()),
-            transmission_handlers,
+            transmission_handlers: HashMap::new(),
             gateway,
         }
     }
@@ -55,7 +53,7 @@ impl Transmitter {
     pub fn run(&self) {
         loop {
             select! {
-                recv(self.listener_rx_channel) -> packet => {
+                recv(self.listener_rx) -> packet => {
                     if let Ok(packet) = packet {
                         self.process_packet(packet);
                     } else {

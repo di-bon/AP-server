@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crossbeam_channel::{SendError, Sender, TrySendError};
+use crossbeam_channel::{SendError, Sender};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodResponse, Nack, NackType, Packet, PacketType};
 

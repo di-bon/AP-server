@@ -1,10 +1,10 @@
 mod storer;
 
 use crate::listener::storer::Storer;
-use crossbeam_channel::{select, Receiver, SendError, Sender};
+use crossbeam_channel::{select, Receiver, Sender};
 use std::collections::HashMap;
 use wg_2024::network::NodeId;
-use wg_2024::packet::{Ack, Fragment, Packet, PacketType};
+use wg_2024::packet::{Fragment, Packet, PacketType};
 
 /*
    TODO:
@@ -44,7 +44,7 @@ impl Listener {
             server_logic_channel,
             drone_channel,
             command_channel,
-            storers: Default::default(),
+            storers: HashMap::default(),
         }
     }
 
