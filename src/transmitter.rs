@@ -29,7 +29,6 @@ pub struct Transmitter {
     network_controller: NetworkController,
     // transmitter -> transmission handlers
     transmission_handlers: HashMap<u64, Sender<Command>>,
-    // simulation_controller_channel: Receiver<Packet> // TODO: this channel needs to be updated to receive commands - maybe it is just useless?
     gateway: Arc<Gateway>,
 }
 
@@ -72,9 +71,6 @@ impl Transmitter {
                     // The reference to the transmission handler will be removed when the
                     // transmission_handler will have received every ACK message
                 },
-                // recv(self.simulation_controller_channel) -> command => {
-                //
-                // }
             }
         }
     }
