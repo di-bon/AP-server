@@ -43,7 +43,7 @@ impl<M: DroneSend> TransmissionHandler<M> {
     }
 
     // Basic version: send all the fragments all at once, then wait for commands, exit when receiving an ACK for each fragment
-    // Refined version: use a sliding window (using AIMD?) to send the fragments
+    // Refined version: use a sliding window (using AIMD? (i.e. Additive Increase Multiplicative Decrease)) to send the fragments
     fn run(&mut self) {
         // Send all packets at once
         for fragment in &self.fragments {
@@ -84,6 +84,9 @@ impl<M: DroneSend> TransmissionHandler<M> {
                                 // Note: it is not needed to resend the previous fragments, if a
                                 // NACK will be received, then they will be sent again using the
                                 // new header
+                            }
+                            Command::Quit => {
+                                break;
                             }
                         }
                     }
@@ -128,15 +131,15 @@ mod tests {
         let gateway = Gateway::new(0, HashMap::new(), listener_tx);
         let gateway = Arc::new(gateway);
         let (command_tx, command_rx) = unbounded::<Command>();
-        let transmission_hanlder = TransmissionHandler::new(
+        let transmission_handler = TransmissionHandler::new(
             source_routing_header,
             message.clone(),
             gateway,
             command_rx
         );
-        assert_eq!(message.source_id, transmission_hanlder.source_id);
-        assert_eq!(message.session_id, transmission_hanlder.session_id);
-        assert_eq!(message.content, transmission_hanlder.message.content);
+        assert_eq!(message.source_id, transmission_handler.source_id);
+        assert_eq!(message.session_id, transmission_handler.session_id);
+        assert_eq!(message.content, transmission_handler.message.content);
     }
 
     #[test]
@@ -154,7 +157,7 @@ mod tests {
         let gateway = Gateway::new(0, HashMap::new(), listener_tx);
         let gateway = Arc::new(gateway);
         let (command_tx, command_rx) = unbounded::<Command>();
-        let transmission_hanlder = TransmissionHandler::new(
+        let transmission_handler = TransmissionHandler::new(
             source_routing_header,
             message.clone(),
             gateway,
@@ -163,8 +166,8 @@ mod tests {
         let expected_packet = Packet {
             routing_header: Default::default(),
             session_id: 51,
-            pack_type: PacketType::MsgFragment(transmission_hanlder.fragments[0].clone()),
+            pack_type: PacketType::MsgFragment(transmission_handler.fragments[0].clone()),
         };
-        assert_eq!(expected_packet, transmission_hanlder.create_packet(transmission_hanlder.fragments[0].clone()))
+        assert_eq!(expected_packet, transmission_handler.create_packet(transmission_handler.fragments[0].clone()))
     }
 }

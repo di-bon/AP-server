@@ -16,7 +16,8 @@ mod transmission_handler;
 pub(crate) enum Command {
     Resend(u64),
     Confirmed(u64),
-    UpdateSourceRoutingHeader(SourceRoutingHeader)
+    UpdateSourceRoutingHeader(SourceRoutingHeader),
+    Quit
 }
 
 pub struct Transmitter {
