@@ -21,6 +21,7 @@ impl Gateway {
 
     /// Sends a Packet to every connected neighboring node
     pub fn send_flood(&self, packet: Packet) {
+        // TODO: check that packet.pack_type == PacketType::FloodRequest(request) => cannot flood with other packet types
         for (node_id, channel) in &self.neighbors {
             self.send_on_channel_checked(channel, packet.clone(), *node_id);
         }
