@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 use crossbeam_channel::{select, Receiver, Sender};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodResponse, Nack, NackType, NodeType, Packet, PacketType};
@@ -15,6 +16,7 @@ mod transmission_handler;
 pub(crate) enum Command {
     Resend(u64),
     Confirmed(u64),
+    UpdateSourceRoutingHeader(SourceRoutingHeader)
 }
 
 pub struct Transmitter {
@@ -27,7 +29,7 @@ pub struct Transmitter {
     // transmitter -> transmission handlers
     transmission_handlers: HashMap<u64, Sender<Command>>,
     // simulation_controller_channel: Receiver<Packet> // TODO: this channel needs to be updated to receive commands - maybe it is just useless?
-    gateway: Rc<Gateway>,
+    gateway: Arc<Gateway>,
 }
 
 impl Transmitter {
@@ -39,7 +41,7 @@ impl Transmitter {
         connected_drones: HashMap<NodeId, Sender<Packet>>,
     ) -> Self {
         let gateway = Gateway::new(node_id, connected_drones, listener_tx);
-        let gateway = Rc::new(gateway);
+        let gateway = Arc::new(gateway);
         Self {
             node_id,
             listener_rx,

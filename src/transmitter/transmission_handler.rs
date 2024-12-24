@@ -1,7 +1,170 @@
-pub(super) struct TransmissionHandler {
+use std::collections::HashSet;
+use std::sync::Arc;
+use assembler::Assembler;
+use assembler::naive_assembler::NaiveAssembler;
+use crossbeam_channel::{select, Receiver};
+use messages::{DroneSend, Message, Response};
+use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::packet::{Fragment, Packet, PacketType};
+use crate::transmitter::Command;
+use crate::transmitter::gateway::Gateway;
 
+/// A `TransmissionHandler` struct that will handle the fragmentation and packet creation, sending
+/// said packets to the gateway. All created packets will share the same `SourceRoutingHeader`,
+/// unless it gets updated using the `update_source_routing_header` method
+#[derive(Debug)]
+pub(super) struct TransmissionHandler<M: DroneSend> {
+    source_routing_header: SourceRoutingHeader,
+    message: Message<M>,
+    fragments: Vec<Fragment>,
+    source_id: NodeId,
+    session_id: u64,
+    gateway: Arc<Gateway>,
+    command_rx: Receiver<Command>,
+    received_acks: HashSet<u64>,
 }
 
-impl TransmissionHandler {
+impl<M: DroneSend> TransmissionHandler<M> {
+    pub fn new(source_routing_header: SourceRoutingHeader, message: Message<M>, gateway: Arc<Gateway>, command_rx: Receiver<Command>) -> Self {
+        let to_be_fragmented = message.content.stringify();
+        let fragments = NaiveAssembler::disassemble(&to_be_fragmented.into_bytes());
+        let source_id = message.source_id;
+        let session_id = message.session_id;
+        Self {
+            source_routing_header,
+            message,
+            fragments,
+            source_id,
+            session_id,
+            gateway,
+            command_rx,
+            received_acks: HashSet::new(),
+        }
+    }
 
+    // Basic version: send all the fragments all at once, then wait for commands, exit when receiving an ACK for each fragment
+    // Refined version: use a sliding window (using AIMD?) to send the fragments
+    fn run(&mut self) {
+        // Send all packets at once
+        for fragment in &self.fragments {
+            let packet = self.create_packet(fragment.clone());
+            self.gateway.forward(packet);
+        }
+
+        // wait for commands from transmitter
+        loop {
+            select! {
+                recv(self.command_rx) -> command => {
+                    if let Ok(command) = command {
+                        match command {
+                            Command::Resend(fragment_index) => {
+                                let fragment = self.fragments.get(fragment_index as usize);
+                                match fragment {
+                                    Some(fragment) => {
+                                        let packet = self.create_packet(fragment.clone());
+                                        self.gateway.forward(packet);
+                                    },
+                                    None => {
+                                        log::warn!(
+                                            "TransmissionHandler for session {} received a command {:?} with fragment index {fragment_index} out of bounds",
+                                            self.session_id,
+                                            Command::Resend(fragment_index)
+                                        );
+                                    }
+                                }
+                            }
+                            Command::Confirmed(fragment_index) => {
+                                self.received_acks.insert(fragment_index);
+                                if self.received_acks.len() == self.fragments.len() {
+                                    break;
+                                }
+                            }
+                            Command::UpdateSourceRoutingHeader(source_routing_header) => {
+                                self.update_source_routing_header(source_routing_header);
+                                // Note: it is not needed to resend the previous fragments, if a
+                                // NACK will be received, then they will be sent again using the
+                                // new header
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn create_packet(&self, fragment: Fragment) -> Packet {
+        Packet {
+            routing_header: self.source_routing_header.clone(),
+            session_id: self.session_id,
+            pack_type: PacketType::MsgFragment(fragment),
+        }
+    }
+
+    fn update_source_routing_header(&mut self, source_routing_header: SourceRoutingHeader) {
+        self.source_routing_header = source_routing_header;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use crossbeam_channel::unbounded;
+    use super::*;
+    use messages::{ChatResponse, Message};
+    use wg_2024::packet::{Packet, PacketType};
+
+    #[test]
+    fn initialize() {
+        let message = Message {
+            source_id: 0,
+            session_id: 0,
+            content: ChatResponse::MessageSent,
+        };
+        let source_routing_header = SourceRoutingHeader {
+            hop_index: 0,
+            hops: vec![],
+        };
+        let (listener_tx, listener_rx) = unbounded::<Packet>();
+        let gateway = Gateway::new(0, HashMap::new(), listener_tx);
+        let gateway = Arc::new(gateway);
+        let (command_tx, command_rx) = unbounded::<Command>();
+        let transmission_hanlder = TransmissionHandler::new(
+            source_routing_header,
+            message.clone(),
+            gateway,
+            command_rx
+        );
+        assert_eq!(message.source_id, transmission_hanlder.source_id);
+        assert_eq!(message.session_id, transmission_hanlder.session_id);
+        assert_eq!(message.content, transmission_hanlder.message.content);
+    }
+
+    #[test]
+    fn prepare_packets() {
+        let message = Message {
+            source_id: 1,
+            session_id: 51,
+            content: ChatResponse::MessageSent,
+        };
+        let source_routing_header = SourceRoutingHeader {
+            hop_index: 0,
+            hops: vec![],
+        };
+        let (listener_tx, listener_rx) = unbounded::<Packet>();
+        let gateway = Gateway::new(0, HashMap::new(), listener_tx);
+        let gateway = Arc::new(gateway);
+        let (command_tx, command_rx) = unbounded::<Command>();
+        let transmission_hanlder = TransmissionHandler::new(
+            source_routing_header,
+            message.clone(),
+            gateway,
+            command_rx,
+        );
+        let expected_packet = Packet {
+            routing_header: Default::default(),
+            session_id: 51,
+            pack_type: PacketType::MsgFragment(transmission_hanlder.fragments[0].clone()),
+        };
+        assert_eq!(expected_packet, transmission_hanlder.create_packet(transmission_hanlder.fragments[0].clone()))
+    }
 }

@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use rand::Rng;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodRequest, FloodResponse, NackType, NodeType, Packet, PacketType};
@@ -9,13 +10,13 @@ pub struct NetworkController {
     node_id: NodeId,
     network_graph: NetworkGraph,
     // network controller -> gateway
-    gateway: Rc<Gateway> // gateway reference used to send all the FloodRequests. Consider sending them back to transmitter and the forwarding them to gateway maybe?
+    gateway: Arc<Gateway> // gateway reference used to send all the FloodRequests. Consider sending them back to transmitter and the forwarding them to gateway maybe?
 }
 
 impl NetworkController {
     pub fn new(
         node_id: NodeId,
-        gateway: Rc<Gateway>,
+        gateway: Arc<Gateway>,
     )-> Self {
         let result = Self {
             node_id,
