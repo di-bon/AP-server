@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use crossbeam_channel::{SendError, Sender};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::packet;
 use wg_2024::packet::{FloodResponse, Nack, NackType, Packet, PacketType};
 
 #[derive(Debug)]
@@ -21,7 +22,11 @@ impl Gateway {
 
     /// Sends a Packet to every connected neighboring node
     pub fn send_flood(&self, packet: Packet) {
-        // TODO: check that packet.pack_type == PacketType::FloodRequest(request) => cannot flood with other packet types
+        if !matches!(packet.pack_type, PacketType::FloodRequest(_)) {
+            log::warn!("Cannot flood the network with a packet of type {:?}. Ignoring packet", packet.pack_type);
+            return;
+        }
+
         for (node_id, channel) in &self.neighbors {
             self.send_on_channel_checked(channel, packet.clone(), *node_id);
         }
@@ -32,7 +37,7 @@ impl Gateway {
         match channel.send(packet) {
             Ok(()) => {},
             Err(SendError(packet)) => {
-                self.send_nack_packet_to_receiver(&packet, NackType::ErrorInRouting(next_hop));
+                self.send_nack_packet_to_receiver(packet, NackType::ErrorInRouting(next_hop));
             }
         }
     }
@@ -63,25 +68,6 @@ impl Gateway {
         self.send_on_channel_checked(channel, wrapper_packet, forward_to);
     }
 
-    // TODO: maybe this method is kinda useless, it is the same thing of calling channel.send directly
-    /*
-    fn send_on_channel(&self, channel: &Sender<Packet>, packet: Packet) -> Result<(), SendError<Packet>> {
-        channel.send(packet)
-        /*
-        match channel.send(packet) {
-            Ok(()) => { },
-            Err(err) => {
-                self.send_nack_packet_to_receiver(&packet, NackType::ErrorInRouting(next_hop)); // next hop cannot be retrieved from packet header since this function may also forward flood requests
-                // TODO: send nack to remove crashed drone
-            }
-        }
-         */
-    }
-     */
-
-    // TODO: update forward method to just forward packets without updating hop_index (so, assume it is
-    // always 1 when receiving a packet. Also, don't make so many checks, just forward the packet
-    // Also, use the send_on_channel method to further modularize the code
     // TODO: should this return a Result<(), ()> or can it just panic?
     /// Forwards a Packet based on its SourceRoutingHeader.
     /// It expects to receive Packets with hop_index set to 1
@@ -93,107 +79,43 @@ impl Gateway {
                 panic!("No next hop")
             }
         };
+
         if let Some(channel) = self.neighbors.get(&next_hop) {
             self.send_on_channel_checked(channel, packet, next_hop);
         } else {
-            self.send_nack_packet_to_receiver(&packet, NackType::ErrorInRouting(next_hop));
+            self.send_nack_packet_to_receiver(packet, NackType::ErrorInRouting(next_hop));
         }
-
-        /*
-        packet.routing_header.hop_index += 1;
-        let hop_index = packet.routing_header.hop_index;
-        let next_hop = packet.routing_header.hops.get(hop_index);
-        match next_hop {
-            Some(next_node) => {
-                match self.neighbors.get(next_node) {
-                    Some(next_node_channel) => {
-                        let _ = next_node_channel.try_send(packet);
-                        Ok(())
-                    },
-                    None => {
-                        let nack_type = NackType::ErrorInRouting(*next_node);
-                        // send error in routing to receiver to handle a possible network crash or wrong routing header
-                        match self.send_nack_packet_to_receiver(&packet, nack_type.clone()) {
-                            Ok(()) => {},
-                            Err(error) => panic!("Gateway to receiver internal channel is disconnected: {error:?}"), // TODO: document this panic
-                        }
-                        Err(nack_type)
-                    }
-                }
-            },
-            None => {
-                // if the match expression returns None, it means that the current node (i.e. server)
-                // is the designed destination
-                // so, forward the packet to Receiver service to handle that logic
-                match self.receiver_channel.try_send(packet) { // TODO: consider add panic!() if the receiver channel is disconnected, which is a state that cannot be recovered
-                    Ok(()) => Ok(()),
-                    Err(error) => panic!("Gateway to receiver internal channel is disconnected: {error:?}"), // TODO: document this panic
-                }
-
-                // this logic should be handled by receiver
-                // let nack_type = NackType::UnexpectedRecipient(self.node_id);
-                // let _ = self.send_error_packet_to_receiver(&packet, nack_type.clone());
-                // Err(nack_type)
-            }
-        }
-
-         */
     }
 
     /// Sends a NACK to listener. Note that the only nack that this will send are just
     /// ErrorInRouting and (hopefully never) UnexpectedRecipient. There is no way that
     /// a Dropped or DestinationIsDrone gets sent, so there is no need to reverse the header
     /// or sending a nack for a specific fragment index
-    fn send_nack_packet_to_receiver(&self, packet: &Packet, nack_type: NackType) {
-        /*
-        // Useless
+    fn send_nack_packet_to_receiver(&self, packet: Packet, nack_type: NackType) {
         let fragment_index = match &packet.pack_type {
             PacketType::MsgFragment(fragment) => {
                 fragment.fragment_index
             }
             _ => 0
         };
-         */
-        let fragment_index = 0;
+
         let nack = Nack {
             fragment_index,
             nack_type,
         };
 
-        // TODO: properly initialize routing_header? Decide this base on how transmitter handles the NACKs
-        // these NACKs in server can only be generated by the server itself, so it is sufficient
-        // to set hops to just 'vec![self.node_id]' to properly handle NACKs. Maybe the routing header isn't even needed?
+        // routing header needs to have a single node in hops, which is 'self.node_id' to properly handle NACKs
         let packet = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
-                hops: vec![],
+                hops: vec![self.node_id],
             },
+            // session_id is not checked by listener if the packet is received by an internal channel, i.e. from transmitter (gateway) to listener
             session_id: 0,
             pack_type: PacketType::Nack(nack),
         };
 
         self.send_to_listener(packet);
-
-        /*
-        let nack = Nack {
-            fragment_index: match &packet.pack_type {
-                PacketType::MsgFragment(fragment) => {
-                    fragment.fragment_index
-                }
-                _ => 0
-            },
-            nack_type: nack_type.clone(),
-        };
-        let packet = Packet {
-            pack_type: PacketType::Nack(nack),
-            // TODO: properly initialize routing_header
-            // these NACKs in server can only be generated by the server itself, to it is sufficient
-            // to set hops to just 'vec![self.node_id]' to properly handle NACKs
-            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![self.node_id] },
-            session_id: packet.session_id,
-        };
-        self.receiver_channel.try_send(packet)
-         */
     }
 
     /// Sends a Packet to Listener
@@ -211,7 +133,6 @@ impl Gateway {
         self.neighbors.insert(node_id, channel);
     }
 
-    // TODO: Use this function to remove crashed neighbors
     /// Removes a channel from the connected neighbors
     fn remove_neighbor(&mut self, node_id: &NodeId) {
         self.neighbors.remove(node_id);
