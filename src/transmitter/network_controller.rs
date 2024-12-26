@@ -84,13 +84,19 @@ impl NetworkController {
 
 mod graph {
     use std::cell::RefCell;
+    use std::cmp::Reverse;
+    use std::collections::{BinaryHeap, HashMap};
     use std::rc::Rc;
+    use std::u64::MAX;
+    use rand::distr::uniform::SampleBorrow;
     use wg_2024::network::NodeId;
     use wg_2024::packet::NodeType;
     use crate::transmitter::network_controller::graph::node::NetworkNode;
 
     pub(super) struct NetworkGraph {
-        nodes: RefCell<Vec<Rc<NetworkNode>>>
+        node_id: NodeId,
+        node_type: NodeType,
+        nodes: RefCell<Vec<Rc<RefCell<NetworkNode>>>>
     }
 
     impl NetworkGraph {
@@ -99,54 +105,63 @@ mod graph {
             node_type: NodeType // owner's node_type
         ) -> Self {
             let result = Self {
+                node_id,
+                node_type,
                 nodes: RefCell::new(vec![])
             };
-            result.insert_node(node_id, node_type); // this ensures that owner is always at index 0
+            result.insert_node(node_id, node_type);
             result
         }
 
-        pub(super) fn reset_graph(&self, server_node_id: NodeId) {
-            self.nodes.borrow_mut().retain(|node| node.node_id == server_node_id);
+        pub(super) fn reset_graph(&mut self, server_node_id: NodeId) {
+            self.nodes.borrow_mut().retain(|node| node.borrow().node_id == server_node_id);
+
+            // It may be faster to just do
+            // self.nodes = RefCell::new(vec![]);
+            // self.insert_node(self.node_id, self.node_type);
         }
 
-        fn insert_node_checked(&self, node_id: NodeId, node_type: NodeType) {
+        fn insert_node_if_not_present(&self, node_id: NodeId, node_type: NodeType) {
             let nodes = self.nodes.borrow();
-            let node_entry = nodes.iter().find(|node| node.node_id == node_id);
+            let node_entry = nodes.iter().find(|node| node.borrow().node_id == node_id);
             if node_entry.is_none() {
                 self.insert_node(node_id, node_type);
             }
         }
 
         pub fn insert_edges_from_path_trace(&self, path_trace: &[(NodeId, NodeType)]) {
-            for ((first_id, first_type), (second_id, second_type)) in path_trace.iter().zip(path_trace.iter().skip(1)) {
-                self.insert_node_checked(*first_id, *first_type);
-                self.insert_node_checked(*second_id, *second_type);
-                self.insert_edge(*first_id, *second_id)
+            for (node_id, node_type) in path_trace.iter() {
+                self.insert_node_if_not_present(*node_id, *node_type);
+            }
+
+            for ((first_id, _first_type), (second_id, _second_type)) in path_trace.iter().zip(path_trace.iter().skip(1)) {
+                self.insert_bidirectional_edge(*first_id, *second_id);
             }
         }
 
-        fn insert_edge(&self, from: NodeId, to: NodeId) {
+        /// Inserts a bidirectional edge between a and b
+        fn insert_bidirectional_edge(&self, a: NodeId, b: NodeId) {
             let nodes = self.nodes.borrow();
-            let node_from = match nodes.iter().find(|node| node.node_id == from) {
+            let node_a = match nodes.iter().find(|node| node.borrow().node_id == a) {
                 Some(node) => node,
-                None => panic!("Node from does not exist"),
+                None => panic!("Node 'a' with node_id {a} does not exist"),
             };
-            let node_to = match nodes.iter().find(|node| node.node_id == to) {
+            let node_b = match nodes.iter().find(|node| node.borrow().node_id == b) {
                 Some(node) => node,
-                None => panic!("Node to does not exist"),
+                None => panic!("Node 'b' with node_id {b} does not exist"),
             };
-            node_from.insert_edge(node_to.clone());
-            node_to.insert_edge(node_from.clone());
+            node_a.borrow_mut().insert_edge(node_b.clone());
+            node_b.borrow_mut().insert_edge(node_a.clone());
         }
 
         pub(super) fn delete_edge(&self, from: NodeId, to: NodeId) {
             let nodes = self.nodes.borrow();
-            let node_from = nodes.iter().find(|node| node.node_id == from);
-            let node_to = nodes.iter().find(|node| node.node_id == to);
+            let node_from = nodes.iter().find(|node| node.borrow().node_id == from);
+            let node_to = nodes.iter().find(|node| node.borrow().node_id == to);
             match (node_from, node_to) {
                 (Some(from), Some(to)) => {
-                    from.remove_edge(to.clone());
-                    to.remove_edge(from.clone());
+                    from.borrow_mut().remove_edge(to.clone());
+                    to.borrow_mut().remove_edge(from.clone());
                 },
                 _ => {
                     // TODO: don't do anything?
@@ -156,26 +171,28 @@ mod graph {
 
         fn insert_node(&self, node_id: NodeId, node_type: NodeType) {
             let node = NetworkNode::new(node_id, node_type);
+            let node = RefCell::new(node);
             let node = Rc::new(node);
             self.nodes.borrow_mut().push(node);
         }
 
         fn delete_node(&self, node_id: NodeId) {
-            let index = self.nodes.borrow_mut().iter().position(|x| x.node_id == node_id);
+            let index = self.nodes.borrow_mut().iter().position(|x| x.borrow().node_id == node_id);
             if let Some(index) = index {
                 self.nodes.borrow_mut().remove(index);
             }
         }
 
         pub(super) fn increment_num_of_dropped_packets(&self, node_id: NodeId) {
-            let faulty_node = self
+            let borrow_mut = self
                 .nodes
-                .borrow_mut()
+                .borrow_mut();
+            let mut faulty_node = borrow_mut
                 .iter()
-                .find(|node| node.node_id == node_id);
+                .find(|node| node.borrow().node_id == node_id);
             match faulty_node {
-                Some(mut node) => {
-                    node.increment_dropped_packets();
+                Some(node) => {
+                    node.borrow_mut().increment_dropped_packets();
                 }
                 None => {
                     // just ignore this case?
@@ -185,15 +202,77 @@ mod graph {
             }
         }
 
-        fn dijkstra(&self) {
-            todo!()
+        /// Returns an HashMap associating every node to its predecessor
+        fn get_paths(&self) -> HashMap<NodeId, NodeId> {
+            let mut come_from: HashMap<NodeId, NodeId> = HashMap::new();
+            // come_from.insert(self.node_id, self.node_id); // ??
+
+            let mut to_be_examined: Vec<NodeId> = Vec::new();
+
+            let mut costs: HashMap<NodeId, u64> = HashMap::new();
+            costs.insert(self.node_id, 0);
+
+            to_be_examined.push(self.node_id);
+
+            while !to_be_examined.is_empty() {
+                let current_node_id = to_be_examined[0];
+                to_be_examined.remove(0);
+
+                let borrow = self.nodes.borrow();
+                let current_node = match borrow.iter().find(|node| node.borrow().node_id == current_node_id) {
+                    Some(node) => node,
+                    None => panic!("Error with nodes while getting paths"),
+                };
+
+                if current_node.borrow().node_type != NodeType::Drone {
+                    continue;
+                }
+
+                let current_cost = match costs.get(&current_node_id) {
+                    Some(cost) => *cost,
+                    None => panic!("Error with costs while getting paths"),
+                };
+
+                for neighbor in current_node.borrow().neighbors.borrow().iter() {
+                    let neighbor_node_id = neighbor.borrow().node_id;
+                    let neighbor_current_cost = match costs.get(&neighbor_node_id) {
+                        Some(cost) => *cost,
+                        None => u64::MAX,
+                    };
+
+                    let neighbor_proposed_cost = current_cost + neighbor.borrow().num_of_dropped_packets;
+
+                    if neighbor_proposed_cost < neighbor_current_cost {
+                        come_from.insert(neighbor_node_id, current_node_id);
+                        costs.insert(neighbor_node_id, neighbor_proposed_cost);
+
+                        if !to_be_examined.contains(&neighbor_node_id) {
+                            to_be_examined.push(neighbor_node_id);
+                        }
+                    }
+                }
+
+                to_be_examined.sort_by_key(|node| costs.get(node).unwrap());
+            }
+
+            come_from
         }
 
         pub fn get_path_to(&self, to: NodeId) -> Option<Vec<NodeId>> {
             // TODO: call Dijkstra's (or any other) algorithm to find the best route.
             // TODO: use also estimated pdr to get best route
 
-            todo!()
+            let distances = self.get_paths();
+            let mut result: Vec<NodeId> = Vec::new();
+
+            let mut current = distances.get(&to)?;
+            while *current != self.node_id {
+                result.push(*current);
+                current = distances.get(current)?;
+            }
+
+            result.reverse();
+            Some(result)
         }
     }
 
@@ -205,11 +284,11 @@ mod graph {
 
         pub(super) struct NetworkNode {
             pub(super) node_id: NodeId,
-            node_type: NodeType,
-            num_of_dropped_packets: usize, // TODO: maybe it is useful to add some timestamps or whatever
+            pub(super) node_type: NodeType,
+            pub(super) num_of_dropped_packets: u64, // TODO: maybe it is useful to add some timestamps or whatever
             // to delete old dropped packets, so that if an unreliable drone gets its pdr changed it get
             // selected during the path finding part, or vice versa, if a reliable drone gets its pdr raised
-            neighbors: RefCell<Vec<Rc<NetworkNode>>>
+            pub(super) neighbors: RefCell<Vec<Rc<RefCell<NetworkNode>>>>
         }
 
         impl NetworkNode {
@@ -225,12 +304,12 @@ mod graph {
                 }
             }
 
-            pub(super) fn insert_edge(&self, to: Rc<NetworkNode>) {
+            pub(super) fn insert_edge(&self, to: Rc<RefCell<NetworkNode>>) {
                 self.neighbors.borrow_mut().push(to)
             }
 
-            pub(super) fn remove_edge(&self, to: Rc<NetworkNode>) {
-                let index = self.neighbors.borrow().iter().position(|node| node.node_id == to.node_id);
+            pub(super) fn remove_edge(&self, to: Rc<RefCell<NetworkNode>>) {
+                let index = self.neighbors.borrow().iter().position(|node| node.borrow().node_id == to.borrow().node_id);
                 if let Some(index) = index {
                     self.neighbors.borrow_mut().remove(index);
                 }
@@ -242,6 +321,10 @@ mod graph {
 
             pub(super) fn reset_num_of_dropped_packets(&mut self) {
                 self.num_of_dropped_packets = 0;
+            }
+
+            pub(super) fn get_num_of_dropped_packets(&self) -> u64 {
+                self.num_of_dropped_packets
             }
         }
     }

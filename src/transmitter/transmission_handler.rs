@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
 use crossbeam_channel::{select, Receiver};
@@ -8,7 +10,7 @@ use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Fragment, Packet, PacketType};
 use crate::transmitter::Command;
 use crate::transmitter::gateway::Gateway;
-
+use crate::transmitter::network_controller::NetworkController;
 // TODO: maybe also handle ACKs?
 
 // TODO: implement backoff time -> move network_controller.get_path() inside transmission_handler
@@ -17,7 +19,6 @@ use crate::transmitter::gateway::Gateway;
 /// A `TransmissionHandler` struct that will handle the fragmentation and packet creation, sending
 /// said packets to the gateway. All created packets will share the same `SourceRoutingHeader`,
 /// unless it gets updated using the `update_source_routing_header` method
-#[derive(Debug)]
 pub(super) struct TransmissionHandler<M: DroneSend> {
     source_routing_header: SourceRoutingHeader,
     message: Message<M>,
@@ -25,12 +26,14 @@ pub(super) struct TransmissionHandler<M: DroneSend> {
     source_id: NodeId,
     session_id: u64,
     gateway: Arc<Gateway>,
+    network_controller: Arc<NetworkController>,
+    destination_node_id: NodeId,
     command_rx: Receiver<Command>,
     received_acks: HashSet<u64>,
 }
 
 impl<M: DroneSend> TransmissionHandler<M> {
-    pub fn new(source_routing_header: SourceRoutingHeader, message: Message<M>, gateway: Arc<Gateway>, command_rx: Receiver<Command>) -> Self {
+    pub fn new(source_routing_header: SourceRoutingHeader, message: Message<M>, gateway: Arc<Gateway>, network_controller: Arc<NetworkController>, destination_node_id: NodeId, command_rx: Receiver<Command>) -> Self {
         let to_be_fragmented = message.content.stringify();
         let fragments = NaiveAssembler::disassemble(&to_be_fragmented.into_bytes());
         let source_id = message.source_id;
@@ -42,6 +45,8 @@ impl<M: DroneSend> TransmissionHandler<M> {
             source_id,
             session_id,
             gateway,
+            network_controller,
+            destination_node_id,
             command_rx,
             received_acks: HashSet::new(),
         }
@@ -50,11 +55,27 @@ impl<M: DroneSend> TransmissionHandler<M> {
     // Basic version: send all the fragments all at once, then wait for commands, exit when receiving an ACK for each fragment
     // Refined version: use a sliding window (using AIMD? (i.e. Additive Increase Multiplicative Decrease)) to send the fragments
     fn run(&mut self) {
+        let mut hops;
+        loop {
+            hops = self.network_controller.get_path(self.destination_node_id);
+            if hops.is_some() {
+                break;
+            } else {
+                thread::sleep(Duration::from_millis(2000));
+            }
+        }
+
+        let source_routing_header = SourceRoutingHeader {
+            hop_index: 1,
+            hops: hops.unwrap(),
+        };
+        self.source_routing_header = source_routing_header;
+
         // Send all packets at once
         for fragment in &self.fragments {
             let packet = self.create_packet(fragment.clone());
             self.gateway.forward(packet);
-        }
+        };
 
         // wait for commands from transmitter
         loop {
@@ -119,7 +140,7 @@ mod tests {
     use crossbeam_channel::unbounded;
     use super::*;
     use messages::{ChatResponse, Message};
-    use wg_2024::packet::{Packet, PacketType};
+    use wg_2024::packet::{NodeType, Packet, PacketType};
 
     #[test]
     fn initialize() {
@@ -136,12 +157,19 @@ mod tests {
         let gateway = Gateway::new(0, HashMap::new(), listener_tx);
         let gateway = Arc::new(gateway);
         let (command_tx, command_rx) = unbounded::<Command>();
+        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone());
+        let network_controller = Arc::new(network_controller);
+        let destination_node_id: NodeId = 1;
+
         let transmission_handler = TransmissionHandler::new(
             source_routing_header,
             message.clone(),
             gateway,
+            network_controller,
+            destination_node_id,
             command_rx
         );
+
         assert_eq!(message.source_id, transmission_handler.source_id);
         assert_eq!(message.session_id, transmission_handler.session_id);
         assert_eq!(message.content, transmission_handler.message.content);
@@ -162,12 +190,19 @@ mod tests {
         let gateway = Gateway::new(0, HashMap::new(), listener_tx);
         let gateway = Arc::new(gateway);
         let (command_tx, command_rx) = unbounded::<Command>();
+        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone());
+        let network_controller = Arc::new(network_controller);
+        let destination_node_id: NodeId = 1;
+
         let transmission_handler = TransmissionHandler::new(
             source_routing_header,
             message.clone(),
             gateway,
-            command_rx,
+            network_controller,
+            destination_node_id,
+            command_rx
         );
+
         let expected_packet = Packet {
             routing_header: Default::default(),
             session_id: 51,
