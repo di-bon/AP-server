@@ -35,6 +35,7 @@ pub struct Transmitter {
 impl Transmitter {
     pub fn new(
         node_id: NodeId,
+        node_type: NodeType,
         listener_rx: Receiver<Packet>,
         listener_tx: Sender<Packet>,
         server_logic_channel: Receiver<Packet>,
@@ -46,7 +47,7 @@ impl Transmitter {
             node_id,
             listener_rx,
             server_logic_channel,
-            network_controller: NetworkController::new(node_id, gateway.clone()),
+            network_controller: NetworkController::new(node_id, node_type, gateway.clone()),
             transmission_handlers: HashMap::new(),
             gateway,
         }

@@ -9,6 +9,11 @@ use wg_2024::packet::{Fragment, Packet, PacketType};
 use crate::transmitter::Command;
 use crate::transmitter::gateway::Gateway;
 
+// TODO: maybe also handle ACKs?
+
+// TODO: implement backoff time -> move network_controller.get_path() inside transmission_handler
+// instead of receiving a routing header in the constructor
+
 /// A `TransmissionHandler` struct that will handle the fragmentation and packet creation, sending
 /// said packets to the gateway. All created packets will share the same `SourceRoutingHeader`,
 /// unless it gets updated using the `update_source_routing_header` method
