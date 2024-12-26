@@ -66,7 +66,12 @@ impl NetworkController {
                         self.flood_network();
                     }
                     NackType::Dropped => {
-                        // This case does not mean anything, ignore it
+                        // Update num_of_dropped_packets
+                        let faulty_node_id = match nack_packet.routing_header.source() {
+                            Some(node) => node,
+                            None => panic!("Received a packet with no routing header")
+                        };
+                        self.network_graph.increment_num_of_dropped_packets(faulty_node_id);
                     }
                 }
             },
@@ -159,6 +164,24 @@ mod graph {
             let index = self.nodes.borrow_mut().iter().position(|x| x.node_id == node_id);
             if let Some(index) = index {
                 self.nodes.borrow_mut().remove(index);
+            }
+        }
+
+        pub(super) fn increment_num_of_dropped_packets(&self, node_id: NodeId) {
+            let faulty_node = self
+                .nodes
+                .borrow_mut()
+                .iter()
+                .find(|node| node.node_id == node_id);
+            match faulty_node {
+                Some(mut node) => {
+                    node.increment_dropped_packets();
+                }
+                None => {
+                    // just ignore this case?
+                    // It may arise when an old Nack::Dropped is received after resetting the
+                    // graph and flooding it again
+                }
             }
         }
 

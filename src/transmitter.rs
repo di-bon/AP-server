@@ -125,6 +125,8 @@ impl Transmitter {
                 }
             },
             PacketType::Nack(nack) => {
+                // TODO: send a clone of avery nack to network controller
+
                 // if a nack is received, tell the transmission_handler to send
                 // the required fragment again
                 let session_id = packet.session_id;
