@@ -62,7 +62,7 @@ impl NetworkController {
                     }
                     NackType::DestinationIsDrone | NackType::UnexpectedRecipient(_) => {
                         // Something went wrong, reset the network graph and flood the network again
-                        self.network_graph.reset_graph(self.node_id);
+                        self.network_graph.reset_graph();
                         self.flood_network();
                     }
                     NackType::Dropped => {
@@ -93,6 +93,7 @@ mod graph {
     use wg_2024::packet::NodeType;
     use crate::transmitter::network_controller::graph::node::NetworkNode;
 
+    #[derive(Debug, Eq, PartialEq)]
     pub(super) struct NetworkGraph {
         node_id: NodeId,
         node_type: NodeType,
@@ -113,30 +114,37 @@ mod graph {
             result
         }
 
-        pub(super) fn reset_graph(&mut self, server_node_id: NodeId) {
-            self.nodes.borrow_mut().retain(|node| node.borrow().node_id == server_node_id);
-
-            // It may be faster to just do
-            // self.nodes = RefCell::new(vec![]);
-            // self.insert_node(self.node_id, self.node_type);
+        fn insert_node(&self, node_id: NodeId, node_type: NodeType) {
+            let node = NetworkNode::new(node_id, node_type);
+            let node = RefCell::new(node);
+            let node = Rc::new(node);
+            self.nodes.borrow_mut().push(node);
         }
 
         fn insert_node_if_not_present(&self, node_id: NodeId, node_type: NodeType) {
-            let nodes = self.nodes.borrow();
-            let node_entry = nodes.iter().find(|node| node.borrow().node_id == node_id);
-            if node_entry.is_none() {
+            let insert_node = {
+                let nodes = self.nodes.borrow();
+                nodes.iter().find(|node| node.borrow().node_id == node_id).is_none()
+            };
+
+            if insert_node {
                 self.insert_node(node_id, node_type);
             }
         }
 
-        pub fn insert_edges_from_path_trace(&self, path_trace: &[(NodeId, NodeType)]) {
-            for (node_id, node_type) in path_trace.iter() {
-                self.insert_node_if_not_present(*node_id, *node_type);
+        fn delete_node(&self, node_id: NodeId) {
+            let index = self.nodes.borrow_mut().iter().position(|x| x.borrow().node_id == node_id);
+            if let Some(index) = index {
+                self.nodes.borrow_mut().remove(index);
             }
+        }
 
-            for ((first_id, _first_type), (second_id, _second_type)) in path_trace.iter().zip(path_trace.iter().skip(1)) {
-                self.insert_bidirectional_edge(*first_id, *second_id);
-            }
+        pub(super) fn reset_graph(&mut self) {
+            self.nodes.borrow_mut().retain(|node| node.borrow().node_id == self.node_id);
+
+            // It may be faster to just do
+            // self.nodes = RefCell::new(vec![]);
+            // self.insert_node(self.node_id, self.node_type);
         }
 
         /// Inserts a bidirectional edge between a and b
@@ -150,8 +158,18 @@ mod graph {
                 Some(node) => node,
                 None => panic!("Node 'b' with node_id {b} does not exist"),
             };
-            node_a.borrow_mut().insert_edge(node_b.clone());
-            node_b.borrow_mut().insert_edge(node_a.clone());
+            node_a.borrow_mut().insert_edge(b);
+            node_b.borrow_mut().insert_edge(a);
+        }
+
+        pub fn insert_edges_from_path_trace(&self, path_trace: &[(NodeId, NodeType)]) {
+            for (node_id, node_type) in path_trace.iter() {
+                self.insert_node_if_not_present(*node_id, *node_type);
+            }
+
+            for ((first_id, _first_type), (second_id, _second_type)) in path_trace.iter().zip(path_trace.iter().skip(1)) {
+                self.insert_bidirectional_edge(*first_id, *second_id);
+            }
         }
 
         pub(super) fn delete_edge(&self, from: NodeId, to: NodeId) {
@@ -159,27 +177,13 @@ mod graph {
             let node_from = nodes.iter().find(|node| node.borrow().node_id == from);
             let node_to = nodes.iter().find(|node| node.borrow().node_id == to);
             match (node_from, node_to) {
-                (Some(from), Some(to)) => {
-                    from.borrow_mut().remove_edge(to.clone());
-                    to.borrow_mut().remove_edge(from.clone());
+                (Some(node_from), Some(node_to)) => {
+                    node_from.borrow_mut().remove_edge(to);
+                    node_to.borrow_mut().remove_edge(from);
                 },
                 _ => {
                     // TODO: don't do anything?
                 }
-            }
-        }
-
-        fn insert_node(&self, node_id: NodeId, node_type: NodeType) {
-            let node = NetworkNode::new(node_id, node_type);
-            let node = RefCell::new(node);
-            let node = Rc::new(node);
-            self.nodes.borrow_mut().push(node);
-        }
-
-        fn delete_node(&self, node_id: NodeId) {
-            let index = self.nodes.borrow_mut().iter().position(|x| x.borrow().node_id == node_id);
-            if let Some(index) = index {
-                self.nodes.borrow_mut().remove(index);
             }
         }
 
@@ -233,21 +237,28 @@ mod graph {
                     None => panic!("Error with costs while getting paths"),
                 };
 
-                for neighbor in current_node.borrow().neighbors.borrow().iter() {
-                    let neighbor_node_id = neighbor.borrow().node_id;
-                    let neighbor_current_cost = match costs.get(&neighbor_node_id) {
+                for neighbor_node_id in current_node.borrow().neighbors.borrow().iter() {
+                    let neighbor_current_cost = match costs.get(neighbor_node_id) {
                         Some(cost) => *cost,
                         None => u64::MAX,
+                    };
+
+                    let neighbor = {
+                        let borrow = self.nodes.borrow();
+                        match borrow.iter().find(|node| node.borrow().node_id == *neighbor_node_id) {
+                            Some(node) => node.clone(),
+                            None => panic!("Node not found"),
+                        }
                     };
 
                     let neighbor_proposed_cost = current_cost + neighbor.borrow().num_of_dropped_packets;
 
                     if neighbor_proposed_cost < neighbor_current_cost {
-                        come_from.insert(neighbor_node_id, current_node_id);
-                        costs.insert(neighbor_node_id, neighbor_proposed_cost);
+                        come_from.insert(*neighbor_node_id, current_node_id);
+                        costs.insert(*neighbor_node_id, neighbor_proposed_cost);
 
                         if !to_be_examined.contains(&neighbor_node_id) {
-                            to_be_examined.push(neighbor_node_id);
+                            to_be_examined.push(*neighbor_node_id);
                         }
                     }
                 }
@@ -276,9 +287,225 @@ mod graph {
         }
     }
 
+    #[cfg(test)]
+    mod tests {
+        use wg_2024::packet::FloodResponse;
+        use super::*;
+
+        #[test]
+        fn initialize() {
+            let node_id = 0;
+            let node_type = NodeType::Server;
+            let graph = NetworkGraph::new(node_id, node_type);
+
+            let node = NetworkNode::new(node_id, node_type);
+            let node = Rc::new(RefCell::new(node));
+            let expected = NetworkGraph {
+                node_id,
+                node_type,
+                nodes: RefCell::new(vec![node]),
+            };
+
+            assert_eq!(graph, expected);
+        }
+
+        #[test]
+        fn insert_two_equal_nodes() {
+            let node_id = 0;
+            let node_type = NodeType::Server;
+            let mut graph = NetworkGraph::new(node_id, node_type);
+
+            let owner_node = NetworkNode::new(node_id, node_type);
+            let owner_node = Rc::new(RefCell::new(owner_node));
+
+            let new_node_id = 1;
+            let new_node_type = NodeType::Drone;
+            let node = NetworkNode::new(new_node_id, new_node_type);
+            let node = Rc::new(RefCell::new(node));
+
+            graph.insert_node(new_node_id, new_node_type);
+            graph.insert_node(new_node_id, new_node_type);
+
+            let expected = NetworkGraph {
+                node_id,
+                node_type,
+                nodes: RefCell::new(vec![owner_node.clone(), node.clone(), node.clone()]),
+            };
+
+            assert_eq!(graph, expected);
+        }
+
+        #[test]
+        fn insert_node_if_not_present_twice() {
+            let node_id = 0;
+            let node_type = NodeType::Server;
+            let mut graph = NetworkGraph::new(node_id, node_type);
+
+            let owner_node = NetworkNode::new(node_id, node_type);
+            let owner_node = Rc::new(RefCell::new(owner_node));
+
+            let new_node_id = 1;
+            let new_node_type = NodeType::Drone;
+            let node = NetworkNode::new(new_node_id, new_node_type);
+            let node = Rc::new(RefCell::new(node));
+
+            graph.insert_node_if_not_present(new_node_id, new_node_type);
+            graph.insert_node_if_not_present(new_node_id, new_node_type);
+
+            let expected = NetworkGraph {
+                node_id,
+                node_type,
+                nodes: RefCell::new(vec![owner_node.clone(), node.clone()]),
+            };
+
+            assert_eq!(graph, expected);
+        }
+
+        #[test]
+        fn reset_graph_to_initial_state() {
+            let node_id = 0;
+            let node_type = NodeType::Server;
+            let mut graph = NetworkGraph::new(node_id, node_type);
+
+            let owner_node = NetworkNode::new(node_id, node_type);
+            let owner_node = Rc::new(RefCell::new(owner_node));
+
+            let new_node_id = 1;
+            let new_node_type = NodeType::Drone;
+            let node_1 = NetworkNode::new(new_node_id, new_node_type);
+            let node_1 = Rc::new(RefCell::new(node_1));
+
+            graph.insert_node(new_node_id, new_node_type);
+            graph.insert_node(new_node_id, new_node_type);
+
+            let expected = NetworkGraph {
+                node_id,
+                node_type,
+                nodes: RefCell::new(vec![owner_node.clone(), node_1.clone(), node_1.clone()]),
+            };
+
+            assert_eq!(graph, expected);
+
+            let new_node_id = 2;
+            let new_node_type = NodeType::Drone;
+            let node_2 = NetworkNode::new(new_node_id, new_node_type);
+            let node_2 = Rc::new(RefCell::new(node_2));
+
+            graph.insert_node_if_not_present(new_node_id, new_node_type);
+            graph.insert_node_if_not_present(new_node_id, new_node_type);
+
+            let expected = NetworkGraph {
+                node_id,
+                node_type,
+                nodes: RefCell::new(vec![owner_node.clone(), node_1.clone(), node_1.clone(), node_2.clone()]),
+            };
+
+            assert_eq!(graph, expected);
+
+            graph.reset_graph();
+
+            let expected = NetworkGraph {
+                node_id,
+                node_type,
+                nodes: RefCell::new(vec![owner_node.clone()]),
+            };
+
+            assert_eq!(graph, expected);
+        }
+
+        #[test]
+        fn add_edges_from_path_trace() {
+            let node_id = 0;
+            let node_type = NodeType::Server;
+            let graph = NetworkGraph::new(node_id, node_type);
+
+            let flood_response = FloodResponse {
+                flood_id: 0,
+                path_trace: vec![
+                    (node_id, node_type),
+                    (1, NodeType::Drone),
+                    (2, NodeType::Drone),
+                    (3, NodeType::Drone),
+                    (4, NodeType::Client),
+                ],
+            };
+
+            graph.insert_edges_from_path_trace(&flood_response.path_trace);
+
+            let owner_node = create_rc_refcell_node(node_id, node_type);
+            let node_1 = create_rc_refcell_node(1, NodeType::Drone);
+            let node_2 = create_rc_refcell_node(2, NodeType::Drone);
+            let node_3 = create_rc_refcell_node(3, NodeType::Drone);
+            let node_4 = create_rc_refcell_node(4, NodeType::Client);
+
+            owner_node.borrow_mut().neighbors.borrow_mut().push(1);
+            node_1.borrow_mut().neighbors.borrow_mut().push(0);
+            node_1.borrow_mut().neighbors.borrow_mut().push(2);
+            node_2.borrow_mut().neighbors.borrow_mut().push(1);
+            node_2.borrow_mut().neighbors.borrow_mut().push(3);
+            node_3.borrow_mut().neighbors.borrow_mut().push(2);
+            node_3.borrow_mut().neighbors.borrow_mut().push(4);
+            node_4.borrow_mut().neighbors.borrow_mut().push(3);
+
+            let expected = NetworkGraph {
+                node_id,
+                node_type,
+                nodes: RefCell::new(vec![
+                    owner_node.clone(),
+                    node_1.clone(),
+                    node_2.clone(),
+                    node_3.clone(),
+                    node_4.clone(),
+                ]),
+            };
+
+            assert_eq!(graph, expected);
+        }
+
+        #[test]
+        fn add_bidirectional_graph() {
+            let node_id = 0;
+            let node_type = NodeType::Server;
+            let mut graph = NetworkGraph::new(node_id, node_type);
+
+            graph.insert_node_if_not_present(1, NodeType::Drone);
+            graph.insert_node_if_not_present(2, NodeType::Drone);
+
+            let expected = NetworkGraph {
+                node_id,
+                node_type,
+                nodes: RefCell::new(vec![
+                    create_rc_refcell_node(node_id, node_type),
+                    create_rc_refcell_node(1, NodeType::Drone),
+                    create_rc_refcell_node(2, NodeType::Drone),
+                ]),
+            };
+
+            assert_eq!(graph, expected);
+
+            graph.insert_bidirectional_edge(1, 2);
+
+            let node_1 = graph.nodes.borrow()[1].clone();
+            let node_2 = graph.nodes.borrow()[2].clone();
+
+            let mut expected_1 = create_rc_refcell_node(1, NodeType::Drone);
+            expected_1.borrow_mut().neighbors.borrow_mut().push(2);
+
+            let mut expected_2 = create_rc_refcell_node(2, NodeType::Drone);
+            expected_2.borrow_mut().neighbors.borrow_mut().push(1);
+
+            assert_eq!(node_1, expected_1);
+            assert_eq!(node_2, expected_2);
+        }
+
+        fn create_rc_refcell_node(node_id: NodeId, node_type: NodeType) -> Rc<RefCell<NetworkNode>> {
+            Rc::new(RefCell::new(NetworkNode::new(node_id, node_type)))
+        }
+    }
+
     mod node {
         use std::cell::RefCell;
-        use std::rc::Rc;
+        use std::rc::{Rc, Weak};
         use wg_2024::network::NodeId;
         use wg_2024::packet::NodeType;
 
@@ -289,7 +516,7 @@ mod graph {
             pub(super) num_of_dropped_packets: u64, // TODO: maybe it is useful to add some timestamps or whatever
             // to delete old dropped packets, so that if an unreliable drone gets its pdr changed it get
             // selected during the path finding part, or vice versa, if a reliable drone gets its pdr raised
-            pub(super) neighbors: RefCell<Vec<Rc<RefCell<NetworkNode>>>>
+            pub(super) neighbors: RefCell<Vec<NodeId>>
         }
 
         impl NetworkNode {
@@ -305,12 +532,12 @@ mod graph {
                 }
             }
 
-            pub(super) fn insert_edge(&self, to: Rc<RefCell<NetworkNode>>) {
+            pub(super) fn insert_edge(&self, to: NodeId) {
                 self.neighbors.borrow_mut().push(to)
             }
 
-            pub(super) fn remove_edge(&self, to: Rc<RefCell<NetworkNode>>) {
-                let index = self.neighbors.borrow().iter().position(|node| node.borrow().node_id == to.borrow().node_id);
+            pub(super) fn remove_edge(&self, to: NodeId) {
+                let index = self.neighbors.borrow().iter().position(|node_id| *node_id == to);
                 if let Some(index) = index {
                     self.neighbors.borrow_mut().remove(index);
                 }
@@ -358,13 +585,13 @@ mod graph {
                 let another_node = NetworkNode::new(1, NodeType::Drone);
                 let another_node = Rc::new(RefCell::new(another_node));
 
-                node.insert_edge(another_node.clone());
+                node.insert_edge(1);
 
                 let expected = NetworkNode {
                     node_id,
                     node_type,
                     num_of_dropped_packets: 0,
-                    neighbors: RefCell::new(vec![another_node.clone()]),
+                    neighbors: RefCell::new(vec![1]),
                 };
 
                 assert_eq!(node, expected);
@@ -379,18 +606,18 @@ mod graph {
                 let another_node = NetworkNode::new(1, NodeType::Drone);
                 let another_node = Rc::new(RefCell::new(another_node));
 
-                node.insert_edge(another_node.clone());
+                node.insert_edge(1);
 
                 let expected = NetworkNode {
                     node_id,
                     node_type,
                     num_of_dropped_packets: 0,
-                    neighbors: RefCell::new(vec![another_node.clone()]),
+                    neighbors: RefCell::new(vec![1]),
                 };
 
                 assert_eq!(node, expected);
 
-                node.remove_edge(another_node.clone());
+                node.remove_edge(1);
 
                 let expected = NetworkNode {
                     node_id,
