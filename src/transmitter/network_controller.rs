@@ -282,6 +282,7 @@ mod graph {
         use wg_2024::network::NodeId;
         use wg_2024::packet::NodeType;
 
+        #[derive(Debug, Eq, PartialEq)]
         pub(super) struct NetworkNode {
             pub(super) node_id: NodeId,
             pub(super) node_type: NodeType,
@@ -325,6 +326,100 @@ mod graph {
 
             pub(super) fn get_num_of_dropped_packets(&self) -> u64 {
                 self.num_of_dropped_packets
+            }
+        }
+
+        #[cfg(test)]
+        mod tests {
+            use super::*;
+
+            #[test]
+            fn initialize_no_neighbors() {
+                let node_id = 0;
+                let node_type = NodeType::Server;
+                let node = NetworkNode::new(node_id, node_type);
+
+                let expected = NetworkNode {
+                    node_id,
+                    node_type,
+                    num_of_dropped_packets: 0,
+                    neighbors: RefCell::new(vec![]),
+                };
+
+                assert_eq!(node, expected);
+            }
+
+            #[test]
+            fn add_neighbors() {
+                let node_id = 0;
+                let node_type = NodeType::Server;
+                let mut node = NetworkNode::new(node_id, node_type);
+
+                let another_node = NetworkNode::new(1, NodeType::Drone);
+                let another_node = Rc::new(RefCell::new(another_node));
+
+                node.insert_edge(another_node.clone());
+
+                let expected = NetworkNode {
+                    node_id,
+                    node_type,
+                    num_of_dropped_packets: 0,
+                    neighbors: RefCell::new(vec![another_node.clone()]),
+                };
+
+                assert_eq!(node, expected);
+            }
+
+            #[test]
+            fn remove_neighbors() {
+                let node_id = 0;
+                let node_type = NodeType::Server;
+                let mut node = NetworkNode::new(node_id, node_type);
+
+                let another_node = NetworkNode::new(1, NodeType::Drone);
+                let another_node = Rc::new(RefCell::new(another_node));
+
+                node.insert_edge(another_node.clone());
+
+                let expected = NetworkNode {
+                    node_id,
+                    node_type,
+                    num_of_dropped_packets: 0,
+                    neighbors: RefCell::new(vec![another_node.clone()]),
+                };
+
+                assert_eq!(node, expected);
+
+                node.remove_edge(another_node.clone());
+
+                let expected = NetworkNode {
+                    node_id,
+                    node_type,
+                    num_of_dropped_packets: 0,
+                    neighbors: RefCell::new(vec![]),
+                };
+
+                assert_eq!(node, expected);
+            }
+
+            #[test]
+            fn increment_dropped_packets() {
+                let node_id = 0;
+                let node_type = NodeType::Server;
+                let mut node = NetworkNode::new(node_id, node_type);
+
+                node.increment_dropped_packets();
+                node.increment_dropped_packets();
+                node.increment_dropped_packets();
+
+                let expected = NetworkNode {
+                    node_id,
+                    node_type,
+                    num_of_dropped_packets: 3,
+                    neighbors: RefCell::new(vec![]),
+                };
+
+                assert_eq!(node, expected);
             }
         }
     }
