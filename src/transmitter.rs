@@ -8,7 +8,6 @@ use crate::transmitter::network_controller::NetworkController;
 use crate::transmitter::gateway::Gateway;
 
 mod network_controller;
-mod transmission_handler_async;
 mod gateway;
 mod transmission_handler;
 
