@@ -89,7 +89,7 @@ impl NetworkGraph {
         }
     }
 
-    pub(super) fn delete_edge(&self, from: NodeId, to: NodeId) {
+    pub(super) fn delete_bidirectional_edge(&self, from: NodeId, to: NodeId) {
         let nodes = self.nodes.borrow();
         let node_from = nodes.iter().find(|node| node.borrow().node_id == from);
         let node_to = nodes.iter().find(|node| node.borrow().node_id == to);
@@ -409,6 +409,49 @@ mod tests {
 
         let mut expected_2 = create_rc_refcell_node(2, NodeType::Drone);
         expected_2.borrow_mut().neighbors.borrow_mut().push(1);
+
+        assert_eq!(node_1, expected_1);
+        assert_eq!(node_2, expected_2);
+    }
+
+    #[test]
+    fn delete_edge() {
+        let node_id = 0;
+        let node_type = NodeType::Server;
+        let mut graph = NetworkGraph::new(node_id, node_type);
+
+        graph.insert_node_if_not_present(1, NodeType::Drone);
+        graph.insert_node_if_not_present(2, NodeType::Drone);
+
+        let expected = NetworkGraph {
+            node_id,
+            node_type,
+            nodes: RefCell::new(vec![
+                create_rc_refcell_node(node_id, node_type),
+                create_rc_refcell_node(1, NodeType::Drone),
+                create_rc_refcell_node(2, NodeType::Drone),
+            ]),
+        };
+
+        assert_eq!(graph, expected);
+
+        graph.insert_bidirectional_edge(1, 2);
+
+        let node_1 = graph.nodes.borrow()[1].clone();
+        let node_2 = graph.nodes.borrow()[2].clone();
+
+        let mut expected_1 = create_rc_refcell_node(1, NodeType::Drone);
+        expected_1.borrow_mut().neighbors.borrow_mut().push(2);
+
+        let mut expected_2 = create_rc_refcell_node(2, NodeType::Drone);
+        expected_2.borrow_mut().neighbors.borrow_mut().push(1);
+
+        assert_eq!(node_1, expected_1);
+        assert_eq!(node_2, expected_2);
+
+        graph.delete_bidirectional_edge(1, 2);
+        let expected_1 = create_rc_refcell_node(1, NodeType::Drone);
+        let expected_2 = create_rc_refcell_node(2, NodeType::Drone);
 
         assert_eq!(node_1, expected_1);
         assert_eq!(node_2, expected_2);

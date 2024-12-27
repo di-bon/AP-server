@@ -11,6 +11,16 @@ pub struct Gateway {
     listener_channel: Sender<Packet>,
 }
 
+impl PartialEq<Self> for Gateway {
+    fn eq(&self, other: &Self) -> bool {
+        self.node_id == other.node_id && self.neighbors.keys().eq(other.neighbors.keys())
+    }
+}
+
+impl Eq for Gateway {
+
+}
+
 impl Gateway {
     pub fn new(node_id: NodeId, neighbors: HashMap<NodeId, Sender<Packet>>, listener_channel: Sender<Packet>) -> Self {
         Self {
