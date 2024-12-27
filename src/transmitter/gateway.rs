@@ -17,9 +17,7 @@ impl PartialEq<Self> for Gateway {
     }
 }
 
-impl Eq for Gateway {
-
-}
+impl Eq for Gateway { }
 
 impl Gateway {
     pub fn new(node_id: NodeId, neighbors: HashMap<NodeId, Sender<Packet>>, listener_channel: Sender<Packet>) -> Self {
@@ -81,7 +79,8 @@ impl Gateway {
     // TODO: should this return a Result<(), ()> or can it just panic?
     /// Forwards a Packet based on its SourceRoutingHeader.
     /// It expects to receive Packets with hop_index set to 1
-    pub fn forward(&self, packet: Packet) {
+    // TODO: check if it expects packets with hop_index set to 1 or 0
+    pub fn forward(&self, mut packet: Packet) {
         let next_hop = match packet.routing_header.next_hop() {
             Some(next_hop) => { next_hop },
             None => {
@@ -89,6 +88,8 @@ impl Gateway {
                 panic!("No next hop")
             }
         };
+
+        packet.routing_header.hop_index += 1;
 
         if let Some(channel) = self.neighbors.get(&next_hop) {
             self.send_on_channel_checked(channel, packet, next_hop);
@@ -149,18 +150,15 @@ impl Gateway {
     }
 }
 
-// TODO: update tests
-/*
 #[cfg(test)]
 mod test {
     use super::*;
     use std::collections::HashMap;
-    use crossbeam_channel::unbounded;
+    use crossbeam_channel::{select, unbounded};
     use wg_2024::packet::{Ack, Packet};
-    use wg_2024::packet::NackType::ErrorInRouting;
 
     #[test]
-    fn create() {
+    fn initialize() {
         let (tx, rx) = unbounded::<Packet>();
         let gateway = Gateway::new(10, HashMap::new(), tx);
 
@@ -177,37 +175,52 @@ mod test {
             routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![10, 1, 2] },
             session_id: 0,
         };
-        let result = gateway.forward(packet.clone());
-        assert_eq!(result, Err(ErrorInRouting(1)));
+        gateway.forward(packet);
+
+        let received = rx.recv().unwrap();
+        let expected = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![10],
+            },
+            session_id: 0,
+            pack_type: PacketType::Nack(Nack {
+                fragment_index: 0,
+                nack_type: NackType::ErrorInRouting(1),
+            }),
+        };
+        assert_eq!(received, expected);
     }
 
     #[test]
     fn check_send_message_successful() {
         let (tx, rx) = unbounded::<Packet>();
+
         let (tx_drone, rx_drone) = unbounded::<Packet>();
         let mut neighbors = HashMap::new();
         neighbors.insert(1, tx_drone);
+
         let gateway = Gateway::new(10, neighbors, tx);
+
         let packet = Packet {
             pack_type: PacketType::Ack(Ack{ fragment_index: 0 }),
             routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![10, 1, 2] },
             session_id: 0,
         };
-        let result = gateway.forward(packet.clone());
 
-        assert_eq!(result, Ok(()));
+        gateway.forward(packet);
 
-        let received = rx_drone.recv();
+        let received = rx_drone.recv().unwrap();
 
-        let received_packet = received.unwrap();
-        assert_eq!(packet.session_id, received_packet.session_id);
-        match (packet.pack_type, received_packet.pack_type) {
-            (PacketType::Ack(_), PacketType::Ack(_)) => { assert!(true) },
-            _ => { assert!(false) }
-        }
-        assert_eq!(packet.routing_header.hop_index + 1, received_packet.routing_header.hop_index);
+        let expected = Packet {
+            pack_type: PacketType::Ack(Ack{ fragment_index: 0 }),
+            routing_header: SourceRoutingHeader { hop_index: 1, hops: vec![10, 1, 2] },
+            session_id: 0,
+        };
+        assert_eq!(received, expected);
     }
 
+    /*
     #[test]
     fn check_send_message_forward_to_receiver() {
         let (tx, rx) = unbounded::<Packet>();
@@ -217,20 +230,29 @@ mod test {
             routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![10] },
             session_id: 0,
         };
-        let result = gateway.forward(packet.clone());
 
-        assert_eq!(result, Ok(()));
+        gateway.forward(packet.clone());
+
+        // assert_eq!(result, Ok(()));
     }
+     */
 
+    /*
     #[test]
     fn check_send_error_packet_to_receiver() {
         let (tx, rx) = unbounded::<Packet>();
         let gateway = Gateway::new(10, HashMap::new(), tx);
+
         let packet = Packet {
-            pack_type: PacketType::Ack(Ack{ fragment_index: 0 }),
-            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![1, 2, 3, 4] },
+            pack_type: PacketType::Nack(Nack{ fragment_index: 0, nack_type: NackType::Dropped }),
+            routing_header: SourceRoutingHeader { hop_index: 3, hops: vec![1, 2, 3, 10] },
             session_id: 0,
         };
+
+        gateway.forward(packet);
+
+
+        /*
         let result = gateway.send_nack_packet_to_receiver(&packet, NackType::Dropped);
         match result {
             Ok(()) => assert!(true),
@@ -251,7 +273,10 @@ mod test {
                 assert!(false)
             },
         }
+
+         */
     }
+     */
 
     #[test]
     fn check_add_neighbor() {
@@ -289,4 +314,3 @@ mod test {
         assert_eq!(gateway.neighbors.len(), 0);
     }
 }
- */

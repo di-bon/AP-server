@@ -15,9 +15,10 @@ mod transmission_handler;
 pub(crate) enum Command {
     Resend(u64),
     Confirmed(u64),
-    UpdateSourceRoutingHeader(SourceRoutingHeader),
     Quit
 }
+
+// TODO: add integration tests
 
 pub struct Transmitter {
     node_id: NodeId,

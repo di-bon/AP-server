@@ -105,12 +105,14 @@ impl<M: DroneSend> TransmissionHandler<M> {
                                     break;
                                 }
                             }
+                            /*
                             Command::UpdateSourceRoutingHeader(source_routing_header) => {
                                 self.update_source_routing_header(source_routing_header);
                                 // Note: it is not needed to resend the previous fragments, if a
                                 // NACK will be received, then they will be sent again using the
                                 // new header
                             }
+                             */
                             Command::Quit => {
                                 break;
                             }
