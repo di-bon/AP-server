@@ -66,7 +66,7 @@ impl<M: DroneSend> TransmissionHandler<M> {
         }
 
         let source_routing_header = SourceRoutingHeader {
-            hop_index: 1,
+            hop_index: 0,
             hops: hops.unwrap(),
         };
         self.source_routing_header = source_routing_header;

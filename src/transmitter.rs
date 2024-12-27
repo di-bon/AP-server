@@ -104,7 +104,7 @@ impl Transmitter {
                         };
                         let nack = Packet::new_nack(
                             SourceRoutingHeader {
-                                hop_index: 1,
+                                hop_index: 0,
                                 hops: nack_path,
                             },
                             session_id,
@@ -193,7 +193,7 @@ impl Transmitter {
                 };
                 let packet = Packet {
                     routing_header: SourceRoutingHeader {
-                        hop_index: 1,
+                        hop_index: 0,
                         hops: path,
                     },
                     session_id: packet.session_id,

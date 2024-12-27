@@ -78,8 +78,7 @@ impl Gateway {
 
     // TODO: should this return a Result<(), ()> or can it just panic?
     /// Forwards a Packet based on its SourceRoutingHeader.
-    /// It expects to receive Packets with hop_index set to 1
-    // TODO: check if it expects packets with hop_index set to 1 or 0
+    /// It expects to receive Packets with hop_index set to 0
     pub fn forward(&self, mut packet: Packet) {
         let next_hop = match packet.routing_header.next_hop() {
             Some(next_hop) => { next_hop },
