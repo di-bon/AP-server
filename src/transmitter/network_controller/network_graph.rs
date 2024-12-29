@@ -222,6 +222,7 @@ impl NetworkGraph {
 // TODO: update tests to use Arc and RwLock instead of Rc and RefCell
 #[cfg(test)]
 mod tests {
+    use std::ops::Deref;
     use wg_2024::packet::FloodResponse;
     use super::*;
 
@@ -371,14 +372,14 @@ mod tests {
         let node_3 = create_arc_rwlock_node(3, NodeType::Drone);
         let node_4 = create_arc_rwlock_node(4, NodeType::Client);
 
-        owner_node.read().unwrap().neighbors.read().unwrap().push(1);
-        node_1.read().unwrap().neighbors.read().unwrap().push(0);
-        node_1.read().unwrap().neighbors.read().unwrap().push(2);
-        node_2.read().unwrap().neighbors.read().unwrap().push(1);
-        node_2.read().unwrap().neighbors.read().unwrap().push(3);
-        node_3.read().unwrap().neighbors.read().unwrap().push(2);
-        node_3.read().unwrap().neighbors.read().unwrap().push(4);
-        node_4.read().unwrap().neighbors.read().unwrap().push(3);
+        owner_node.write().unwrap().neighbors.write().unwrap().push(1);
+        node_1.write().unwrap().neighbors.write().unwrap().push(0);
+        node_1.write().unwrap().neighbors.write().unwrap().push(2);
+        node_2.write().unwrap().neighbors.write().unwrap().push(1);
+        node_2.write().unwrap().neighbors.write().unwrap().push(3);
+        node_3.write().unwrap().neighbors.write().unwrap().push(2);
+        node_3.write().unwrap().neighbors.write().unwrap().push(4);
+        node_4.write().unwrap().neighbors.write().unwrap().push(3);
 
         let expected = NetworkGraph {
             node_id,
@@ -418,8 +419,8 @@ mod tests {
 
         graph.insert_bidirectional_edge(1, 2);
 
-        let node_1 = graph.nodes.borrow()[1].clone();
-        let node_2 = graph.nodes.borrow()[2].clone();
+        let node_1 = graph.nodes.read().unwrap()[1].clone();
+        let node_2 = graph.nodes.read().unwrap()[2].clone();
 
         let mut expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
         expected_1.read().unwrap().neighbors.read().unwrap().push(2);
@@ -454,8 +455,8 @@ mod tests {
 
         graph.insert_bidirectional_edge(1, 2);
 
-        let node_1 = graph.nodes.borrow()[1].clone();
-        let node_2 = graph.nodes.borrow()[2].clone();
+        let node_1 = graph.nodes.read().unwrap()[1].clone();
+        let node_2 = graph.nodes.read().unwrap()[2].clone();
 
         let mut expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
         expected_1.read().unwrap().neighbors.read().unwrap().push(2);
