@@ -423,10 +423,10 @@ mod tests {
         let node_2 = graph.nodes.read().unwrap()[2].clone();
 
         let mut expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
-        expected_1.read().unwrap().neighbors.read().unwrap().push(2);
+        expected_1.write().unwrap().neighbors.write().unwrap().push(2);
 
         let mut expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
-        expected_2.read().unwrap().neighbors.read().unwrap().push(1);
+        expected_2.write().unwrap().neighbors.write().unwrap().push(1);
 
         assert_eq!(node_1, expected_1);
         assert_eq!(node_2, expected_2);
@@ -459,10 +459,10 @@ mod tests {
         let node_2 = graph.nodes.read().unwrap()[2].clone();
 
         let mut expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
-        expected_1.read().unwrap().neighbors.read().unwrap().push(2);
+        expected_1.write().unwrap().neighbors.write().unwrap().push(2);
 
         let mut expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
-        expected_2.read().unwrap().neighbors.read().unwrap().push(1);
+        expected_2.write().unwrap().neighbors.write().unwrap().push(1);
 
         assert_eq!(node_1, expected_1);
         assert_eq!(node_2, expected_2);
