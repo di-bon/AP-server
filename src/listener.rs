@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
 use messages::ChatResponse::MessageFrom;
-use messages::Message;
+use messages::node_event::NodeEvent;
+use messages::{DroneSend, Message};
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet, PacketType};
 
@@ -22,7 +23,7 @@ pub enum ListenerCommand {
     Quit
 }
 
-pub struct Listener {
+pub struct Listener<M: DroneSend + 'static> {
     node_id: NodeId,
     // listener -> transmitter
     transmitter_tx: Sender<Packet>, // this should only transmit packets of all types but PacketType::MsgFragment(Fragment)
@@ -33,11 +34,12 @@ pub struct Listener {
     // drone(s) -> listener
     drones_rx: Receiver<Packet>,
     command_rx: Receiver<ListenerCommand>,
+    simulation_controller_tx: Sender<NodeEvent<M>>,
     // HashMap containing all the pairs (session_id, Storer)
     storers: HashMap<u64, Storer>,
 }
 
-impl Listener {
+impl<M: DroneSend + 'static> Listener<M> {
     pub fn new(
         node_id: NodeId,
         transmitter_tx: Sender<Packet>,
@@ -45,6 +47,7 @@ impl Listener {
         server_logic_tx: Sender<Packet>,
         drones_rx: Receiver<Packet>,
         command_rx: Receiver<ListenerCommand>,
+        simulation_controller_tx: Sender<NodeEvent<M>>,
     ) -> Self {
         Self {
             node_id,
@@ -53,6 +56,7 @@ impl Listener {
             server_logic_tx,
             drones_rx,
             command_rx,
+            simulation_controller_tx,
             storers: HashMap::default(),
         }
     }
@@ -205,15 +209,17 @@ mod tests {
     use super::*;
     use crossbeam_channel::unbounded;
     use futures::task::SpawnExt;
+    use messages::{Request, Response};
     use ntest::timeout;
     use wg_2024::network::SourceRoutingHeader;
     use wg_2024::packet::{Ack, Packet, PacketType};
 
-    fn create_listener_and_channels(node_id: NodeId) -> (Listener, Sender<Packet>, Receiver<Packet>, Receiver<Packet>, Sender<ListenerCommand>) {
+    fn create_listener_and_channels<M: DroneSend>(node_id: NodeId) -> (Listener<M>, Sender<Packet>, Receiver<Packet>, Receiver<Packet>, Sender<ListenerCommand>) {
         let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
         let (drones_tx, drones_rx) = unbounded::<Packet>();
         let (server_logic_tx, server_logic_rx) = unbounded::<Packet>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent<M>>();
 
         let listener = Listener::new(
             node_id,
@@ -222,6 +228,7 @@ mod tests {
             server_logic_tx,
             drones_rx,
             command_rx,
+            simulation_controller_tx
         );
 
         (listener, drones_tx, server_logic_rx, transmitter_rx, command_tx)
@@ -229,12 +236,14 @@ mod tests {
 
     #[test]
     fn initialize() {
-        let (listener, _drones_tx, _server_logic_rx, transmitter_rx, command_tx) = create_listener_and_channels(1);
+        let (listener, _drones_tx, _server_logic_rx, transmitter_rx, command_tx) = create_listener_and_channels::<Message< /* ??? */ >>(1);
 
         let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
         let (drones_tx, drones_rx) = unbounded::<Packet>();
         let (server_logic_tx, _server_logic_rx) = unbounded::<Packet>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent<dyn Request>>();
+
         let expected = Listener {
             node_id: 1,
             transmitter_tx,
@@ -242,6 +251,7 @@ mod tests {
             drones_rx,
             transmitter_rx,
             command_rx,
+            simulation_controller_tx,
             storers: Default::default(),
         };
 
@@ -250,8 +260,8 @@ mod tests {
     }
 
     #[test]
-    fn forward_packet_to_transmitter_ok() {
-        let (listener, _drones_tx, _server_logic_rx, transmitter_rx, command_tx) = create_listener_and_channels(1);
+    fn forward_packet_to_transmitter_ok<M: DroneSend>() {
+        let (listener, _drones_tx, _server_logic_rx, transmitter_rx, command_tx) = create_listener_and_channels::<Message<M>>(1);
 
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
@@ -289,8 +299,8 @@ mod tests {
 
     #[test]
     #[timeout(2000)]
-    fn store_fragment_successful() {
-        let (listener, drones_tx, _server_logic_rx, _transmitter_rx, command_tx) = create_listener_and_channels(1);
+    fn store_fragment_successful<M: DroneSend>() {
+        let (listener, drones_tx, _server_logic_rx, _transmitter_rx, command_tx) = create_listener_and_channels::<Message<M>>(1);
         let listener = Arc::new(Mutex::new(listener));
         let listener_clone = Arc::clone(&listener);
 

@@ -10,7 +10,7 @@ futures = "0.3.31"
 log = "0.4.22"
 rand = "0.9.0-beta.1"
 assembler = { git = "https://github.com/The-Null-Pointer-Patrol/assembler.git" }
-messages = { git = "https://github.com/The-Null-Pointer-Patrol/messages.git" }
+messages = { git = "https://github.com/The-Null-Pointer-Patrol/messages.git", branch = "add-send-to-drone-send" }
 
 [dev-dependencies]
 ntest = "0.7.2"
