@@ -3,7 +3,7 @@ mod network_node;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use rand::distr::uniform::SampleBorrow;
 use wg_2024::network::NodeId;
 use wg_2024::packet::NodeType;
@@ -13,7 +13,7 @@ use crate::transmitter::network_controller::network_graph::network_node::Network
 pub(super) struct NetworkGraph {
     node_id: NodeId,
     node_type: NodeType,
-    nodes: RwLock<Vec<Rc<RefCell<NetworkNode>>>>
+    nodes: RwLock<Vec<Arc<RwLock<NetworkNode>>>>
 }
 
 impl PartialEq for NetworkGraph {
@@ -48,15 +48,15 @@ impl NetworkGraph {
 
     fn insert_node(&self, node_id: NodeId, node_type: NodeType) {
         let node = NetworkNode::new(node_id, node_type);
-        let node = RefCell::new(node);
-        let node = Rc::new(node);
+        let node = RwLock::new(node);
+        let node = Arc::new(node);
         self.nodes.write().unwrap().push(node);
     }
 
     fn insert_node_if_not_present(&self, node_id: NodeId, node_type: NodeType) {
         let insert_node = {
             let nodes = self.nodes.read().unwrap();
-            nodes.iter().find(|node| node.borrow().node_id == node_id).is_none()
+            nodes.iter().find(|node| node.read().unwrap().node_id == node_id).is_none()
         };
 
         if insert_node {
@@ -65,14 +65,14 @@ impl NetworkGraph {
     }
 
     fn delete_node(&self, node_id: NodeId) {
-        let index = self.nodes.read().unwrap().iter().position(|x| x.borrow().node_id == node_id);
+        let index = self.nodes.read().unwrap().iter().position(|x| x.read().unwrap().node_id == node_id);
         if let Some(index) = index {
             self.nodes.write().unwrap().remove(index);
         }
     }
 
     pub(super) fn reset_graph(&mut self) {
-        self.nodes.write().unwrap().retain(|node| node.borrow().node_id == self.node_id);
+        self.nodes.write().unwrap().retain(|node| node.read().unwrap().node_id == self.node_id);
 
         // It may be faster to just do
         // self.nodes = RefCell::new(vec![]);
@@ -82,16 +82,16 @@ impl NetworkGraph {
     /// Inserts a bidirectional edge between a and b
     fn insert_bidirectional_edge(&self, a: NodeId, b: NodeId) {
         let nodes = self.nodes.read().unwrap();
-        let node_a = match nodes.iter().find(|node| node.borrow().node_id == a) {
+        let node_a = match nodes.iter().find(|node| node.read().unwrap().node_id == a) {
             Some(node) => node,
             None => panic!("Node 'a' with node_id {a} does not exist"),
         };
-        let node_b = match nodes.iter().find(|node| node.borrow().node_id == b) {
+        let node_b = match nodes.iter().find(|node| node.read().unwrap().node_id == b) {
             Some(node) => node,
             None => panic!("Node 'b' with node_id {b} does not exist"),
         };
-        node_a.borrow_mut().insert_edge(b);
-        node_b.borrow_mut().insert_edge(a);
+        node_a.write().unwrap().insert_edge(b);
+        node_b.write().unwrap().insert_edge(a);
     }
 
     pub fn insert_edges_from_path_trace(&self, path_trace: &[(NodeId, NodeType)]) {
@@ -106,12 +106,12 @@ impl NetworkGraph {
 
     pub(super) fn delete_bidirectional_edge(&self, from: NodeId, to: NodeId) {
         let nodes = self.nodes.read().unwrap();
-        let node_from = nodes.iter().find(|node| node.borrow().node_id == from);
-        let node_to = nodes.iter().find(|node| node.borrow().node_id == to);
+        let node_from = nodes.iter().find(|node| node.read().unwrap().node_id == from);
+        let node_to = nodes.iter().find(|node| node.read().unwrap().node_id == to);
         match (node_from, node_to) {
             (Some(node_from), Some(node_to)) => {
-                node_from.borrow_mut().remove_edge(to);
-                node_to.borrow_mut().remove_edge(from);
+                node_from.write().unwrap().remove_edge(to);
+                node_to.write().unwrap().remove_edge(from);
             },
             _ => {
                 // TODO: don't do anything?
@@ -126,10 +126,10 @@ impl NetworkGraph {
             .unwrap();
         let mut faulty_node = borrow_mut
             .iter()
-            .find(|node| node.borrow().node_id == node_id);
+            .find(|node| node.read().unwrap().node_id == node_id);
         match faulty_node {
             Some(node) => {
-                node.borrow_mut().increment_dropped_packets();
+                node.write().unwrap().increment_dropped_packets();
             }
             None => {
                 // just ignore this case?
@@ -156,12 +156,12 @@ impl NetworkGraph {
             to_be_examined.remove(0);
 
             let borrow = self.nodes.read().unwrap();
-            let current_node = match borrow.iter().find(|node| node.borrow().node_id == current_node_id) {
+            let current_node = match borrow.iter().find(|node| node.read().unwrap().node_id == current_node_id) {
                 Some(node) => node,
                 None => panic!("Error with nodes while getting paths"),
             };
 
-            if current_node.borrow().node_type != NodeType::Drone && current_node.borrow().node_id != self.node_id {
+            if current_node.read().unwrap().node_type != NodeType::Drone && current_node.read().unwrap().node_id != self.node_id {
                 continue;
             }
 
@@ -170,7 +170,7 @@ impl NetworkGraph {
                 None => panic!("Error with costs while getting paths"),
             };
 
-            for neighbor_node_id in current_node.borrow().neighbors.read().unwrap().iter() {
+            for neighbor_node_id in current_node.read().unwrap().neighbors.read().unwrap().iter() {
                 let neighbor_current_cost = match costs.get(neighbor_node_id) {
                     Some(cost) => *cost,
                     None => u64::MAX,
@@ -178,13 +178,13 @@ impl NetworkGraph {
 
                 let neighbor = {
                     let borrow = self.nodes.read().unwrap();
-                    match borrow.iter().find(|node| node.borrow().node_id == *neighbor_node_id) {
+                    match borrow.iter().find(|node| node.read().unwrap().node_id == *neighbor_node_id) {
                         Some(node) => node.clone(),
                         None => panic!("Node not found"),
                     }
                 };
 
-                let neighbor_proposed_cost = current_cost + neighbor.borrow().num_of_dropped_packets;
+                let neighbor_proposed_cost = current_cost + neighbor.read().unwrap().num_of_dropped_packets;
 
                 if neighbor_proposed_cost < neighbor_current_cost {
                     come_from.insert(*neighbor_node_id, current_node_id);
@@ -232,7 +232,7 @@ mod tests {
         let graph = NetworkGraph::new(node_id, node_type);
 
         let node = NetworkNode::new(node_id, node_type);
-        let node = Rc::new(RefCell::new(node));
+        let node = Arc::new(RwLock::new(node));
         let expected = NetworkGraph {
             node_id,
             node_type,
@@ -249,12 +249,12 @@ mod tests {
         let mut graph = NetworkGraph::new(node_id, node_type);
 
         let owner_node = NetworkNode::new(node_id, node_type);
-        let owner_node = Rc::new(RefCell::new(owner_node));
+        let owner_node = Arc::new(RwLock::new(owner_node));
 
         let new_node_id = 1;
         let new_node_type = NodeType::Drone;
         let node = NetworkNode::new(new_node_id, new_node_type);
-        let node = Rc::new(RefCell::new(node));
+        let node = Arc::new(RwLock::new(node));
 
         graph.insert_node(new_node_id, new_node_type);
         graph.insert_node(new_node_id, new_node_type);
@@ -275,12 +275,12 @@ mod tests {
         let mut graph = NetworkGraph::new(node_id, node_type);
 
         let owner_node = NetworkNode::new(node_id, node_type);
-        let owner_node = Rc::new(RefCell::new(owner_node));
+        let owner_node = Arc::new(RwLock::new(owner_node));
 
         let new_node_id = 1;
         let new_node_type = NodeType::Drone;
         let node = NetworkNode::new(new_node_id, new_node_type);
-        let node = Rc::new(RefCell::new(node));
+        let node = Arc::new(RwLock::new(node));
 
         graph.insert_node_if_not_present(new_node_id, new_node_type);
         graph.insert_node_if_not_present(new_node_id, new_node_type);
@@ -301,12 +301,12 @@ mod tests {
         let mut graph = NetworkGraph::new(node_id, node_type);
 
         let owner_node = NetworkNode::new(node_id, node_type);
-        let owner_node = Rc::new(RefCell::new(owner_node));
+        let owner_node = Arc::new(RwLock::new(owner_node));
 
         let new_node_id = 1;
         let new_node_type = NodeType::Drone;
         let node_1 = NetworkNode::new(new_node_id, new_node_type);
-        let node_1 = Rc::new(RefCell::new(node_1));
+        let node_1 = Arc::new(RwLock::new(node_1));
 
         graph.insert_node(new_node_id, new_node_type);
         graph.insert_node(new_node_id, new_node_type);
@@ -322,7 +322,7 @@ mod tests {
         let new_node_id = 2;
         let new_node_type = NodeType::Drone;
         let node_2 = NetworkNode::new(new_node_id, new_node_type);
-        let node_2 = Rc::new(RefCell::new(node_2));
+        let node_2 = Arc::new(RwLock::new(node_2));
 
         graph.insert_node_if_not_present(new_node_id, new_node_type);
         graph.insert_node_if_not_present(new_node_id, new_node_type);
@@ -365,20 +365,20 @@ mod tests {
 
         graph.insert_edges_from_path_trace(&flood_response.path_trace);
 
-        let owner_node = create_rc_refcell_node(node_id, node_type);
-        let node_1 = create_rc_refcell_node(1, NodeType::Drone);
-        let node_2 = create_rc_refcell_node(2, NodeType::Drone);
-        let node_3 = create_rc_refcell_node(3, NodeType::Drone);
-        let node_4 = create_rc_refcell_node(4, NodeType::Client);
+        let owner_node = create_arc_rwlock_node(node_id, node_type);
+        let node_1 = create_arc_rwlock_node(1, NodeType::Drone);
+        let node_2 = create_arc_rwlock_node(2, NodeType::Drone);
+        let node_3 = create_arc_rwlock_node(3, NodeType::Drone);
+        let node_4 = create_arc_rwlock_node(4, NodeType::Client);
 
-        owner_node.borrow_mut().neighbors.borrow_mut().push(1);
-        node_1.borrow_mut().neighbors.borrow_mut().push(0);
-        node_1.borrow_mut().neighbors.borrow_mut().push(2);
-        node_2.borrow_mut().neighbors.borrow_mut().push(1);
-        node_2.borrow_mut().neighbors.borrow_mut().push(3);
-        node_3.borrow_mut().neighbors.borrow_mut().push(2);
-        node_3.borrow_mut().neighbors.borrow_mut().push(4);
-        node_4.borrow_mut().neighbors.borrow_mut().push(3);
+        owner_node.read().unwrap().neighbors.read().unwrap().push(1);
+        node_1.read().unwrap().neighbors.read().unwrap().push(0);
+        node_1.read().unwrap().neighbors.read().unwrap().push(2);
+        node_2.read().unwrap().neighbors.read().unwrap().push(1);
+        node_2.read().unwrap().neighbors.read().unwrap().push(3);
+        node_3.read().unwrap().neighbors.read().unwrap().push(2);
+        node_3.read().unwrap().neighbors.read().unwrap().push(4);
+        node_4.read().unwrap().neighbors.read().unwrap().push(3);
 
         let expected = NetworkGraph {
             node_id,
@@ -408,9 +408,9 @@ mod tests {
             node_id,
             node_type,
             nodes: RwLock::new(vec![
-                create_rc_refcell_node(node_id, node_type),
-                create_rc_refcell_node(1, NodeType::Drone),
-                create_rc_refcell_node(2, NodeType::Drone),
+                create_arc_rwlock_node(node_id, node_type),
+                create_arc_rwlock_node(1, NodeType::Drone),
+                create_arc_rwlock_node(2, NodeType::Drone),
             ]),
         };
 
@@ -421,11 +421,11 @@ mod tests {
         let node_1 = graph.nodes.borrow()[1].clone();
         let node_2 = graph.nodes.borrow()[2].clone();
 
-        let mut expected_1 = create_rc_refcell_node(1, NodeType::Drone);
-        expected_1.borrow_mut().neighbors.borrow_mut().push(2);
+        let mut expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
+        expected_1.read().unwrap().neighbors.read().unwrap().push(2);
 
-        let mut expected_2 = create_rc_refcell_node(2, NodeType::Drone);
-        expected_2.borrow_mut().neighbors.borrow_mut().push(1);
+        let mut expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
+        expected_2.read().unwrap().neighbors.read().unwrap().push(1);
 
         assert_eq!(node_1, expected_1);
         assert_eq!(node_2, expected_2);
@@ -444,9 +444,9 @@ mod tests {
             node_id,
             node_type,
             nodes: RwLock::new(vec![
-                create_rc_refcell_node(node_id, node_type),
-                create_rc_refcell_node(1, NodeType::Drone),
-                create_rc_refcell_node(2, NodeType::Drone),
+                create_arc_rwlock_node(node_id, node_type),
+                create_arc_rwlock_node(1, NodeType::Drone),
+                create_arc_rwlock_node(2, NodeType::Drone),
             ]),
         };
 
@@ -457,18 +457,18 @@ mod tests {
         let node_1 = graph.nodes.borrow()[1].clone();
         let node_2 = graph.nodes.borrow()[2].clone();
 
-        let mut expected_1 = create_rc_refcell_node(1, NodeType::Drone);
-        expected_1.borrow_mut().neighbors.borrow_mut().push(2);
+        let mut expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
+        expected_1.read().unwrap().neighbors.read().unwrap().push(2);
 
-        let mut expected_2 = create_rc_refcell_node(2, NodeType::Drone);
-        expected_2.borrow_mut().neighbors.borrow_mut().push(1);
+        let mut expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
+        expected_2.read().unwrap().neighbors.read().unwrap().push(1);
 
         assert_eq!(node_1, expected_1);
         assert_eq!(node_2, expected_2);
 
         graph.delete_bidirectional_edge(1, 2);
-        let expected_1 = create_rc_refcell_node(1, NodeType::Drone);
-        let expected_2 = create_rc_refcell_node(2, NodeType::Drone);
+        let expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
+        let expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
 
         assert_eq!(node_1, expected_1);
         assert_eq!(node_2, expected_2);
@@ -529,7 +529,7 @@ mod tests {
         assert_eq!(hops, None);
     }
 
-    fn create_rc_refcell_node(node_id: NodeId, node_type: NodeType) -> Rc<RefCell<NetworkNode>> {
-        Rc::new(RefCell::new(NetworkNode::new(node_id, node_type)))
+    fn create_arc_rwlock_node(node_id: NodeId, node_type: NodeType) -> Arc<RwLock<NetworkNode>> {
+        Arc::new(RwLock::new(NetworkNode::new(node_id, node_type)))
     }
 }
