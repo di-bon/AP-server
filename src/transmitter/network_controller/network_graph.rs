@@ -489,6 +489,29 @@ mod tests {
         assert_eq!(hops, expected);
     }
 
+    #[test]
+    fn get_path_to_should_return_none() {
+        let node_id = 0;
+        let node_type = NodeType::Server;
+        let graph = NetworkGraph::new(node_id, node_type);
+
+        let flood_response = FloodResponse {
+            flood_id: 0,
+            path_trace: vec![
+                (node_id, node_type),
+                (1, NodeType::Drone),
+                (2, NodeType::Client),
+                (3, NodeType::Drone),
+                (4, NodeType::Client),
+            ],
+        };
+
+        graph.insert_edges_from_path_trace(&flood_response.path_trace);
+
+        let hops = graph.get_path_to(4);
+        assert_eq!(hops, None);
+    }
+
     fn create_rc_refcell_node(node_id: NodeId, node_type: NodeType) -> Rc<RefCell<NetworkNode>> {
         Rc::new(RefCell::new(NetworkNode::new(node_id, node_type)))
     }

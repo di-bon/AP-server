@@ -33,13 +33,17 @@ pub(super) struct TransmissionHandler<M: DroneSend> {
 }
 
 impl<M: DroneSend> TransmissionHandler<M> {
-    pub fn new(source_routing_header: SourceRoutingHeader, message: Message<M>, gateway: Arc<Gateway>, network_controller: Arc<NetworkController>, destination_node_id: NodeId, command_rx: Receiver<Command>) -> Self {
+    pub fn new(message: Message<M>, gateway: Arc<Gateway>, network_controller: Arc<NetworkController>, destination_node_id: NodeId, command_rx: Receiver<Command>) -> Self {
         let to_be_fragmented = message.content.stringify();
         let fragments = NaiveAssembler::disassemble(&to_be_fragmented.into_bytes());
         let source_id = message.source_id;
         let session_id = message.session_id;
         Self {
-            source_routing_header,
+            // placeholder for source_routing_header that will be later updated in the run() method
+            source_routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![],
+            },
             message,
             fragments,
             source_id,
@@ -164,7 +168,6 @@ mod tests {
         let destination_node_id: NodeId = 1;
 
         let transmission_handler = TransmissionHandler::new(
-            source_routing_header,
             message.clone(),
             gateway,
             network_controller,
@@ -197,7 +200,6 @@ mod tests {
         let destination_node_id: NodeId = 1;
 
         let transmission_handler = TransmissionHandler::new(
-            source_routing_header,
             message.clone(),
             gateway,
             network_controller,
@@ -211,5 +213,47 @@ mod tests {
             pack_type: PacketType::MsgFragment(transmission_handler.fragments[0].clone()),
         };
         assert_eq!(expected_packet, transmission_handler.create_packet(transmission_handler.fragments[0].clone()))
+    }
+
+    #[test]
+    fn update_source_routing_header() {
+        let message = Message {
+            source_id: 1,
+            session_id: 51,
+            content: ChatResponse::MessageSent,
+        };
+        let source_routing_header = SourceRoutingHeader {
+            hop_index: 0,
+            hops: vec![],
+        };
+        let (listener_tx, listener_rx) = unbounded::<Packet>();
+        let gateway = Gateway::new(0, HashMap::new(), listener_tx);
+        let gateway = Arc::new(gateway);
+        let (command_tx, command_rx) = unbounded::<Command>();
+        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone());
+        let network_controller = Arc::new(network_controller);
+        let destination_node_id: NodeId = 1;
+
+        let mut transmission_handler = TransmissionHandler::new(
+            message.clone(),
+            gateway,
+            network_controller,
+            destination_node_id,
+            command_rx
+        );
+
+        let expected_source_routing_header = SourceRoutingHeader {
+            hop_index: 0,
+            hops: vec![],
+        };
+        assert_eq!(transmission_handler.source_routing_header, expected_source_routing_header);
+
+        let new_source_routing_header = SourceRoutingHeader {
+            hop_index: 0,
+            hops: vec![1, 2, 3, 4],
+        };
+        transmission_handler.update_source_routing_header(new_source_routing_header.clone());
+
+        assert_eq!(transmission_handler.source_routing_header, new_source_routing_header);
     }
 }

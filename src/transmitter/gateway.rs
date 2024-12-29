@@ -45,22 +45,25 @@ impl Gateway {
         match channel.send(packet) {
             Ok(()) => {},
             Err(SendError(packet)) => {
-                self.send_nack_packet_to_receiver(packet, NackType::ErrorInRouting(next_hop));
+                self.send_nack_packet_to_listener(packet, NackType::ErrorInRouting(next_hop));
             }
         }
     }
 
     /// Sends a FloodResponse packet
     pub fn send_flood_response(&self, flood_response: FloodResponse, session_id: u64) {
-        let forward_to = match flood_response.path_trace.iter().skip(1).next() {
+        let forward_to = match flood_response.path_trace.iter().nth(1) {
             Some((node_id, _node_type)) => *node_id,
             None => {
                 // TODO: what to do?
-                panic!("received a flood request with no path trace");
+                panic!("Tried to send a FloodResponse with no next hop");
             }
         };
         let wrapper_packet = Packet {
-            routing_header: Default::default(),
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![],
+            },
             session_id,
             pack_type: PacketType::FloodResponse(flood_response),
         };
@@ -93,7 +96,7 @@ impl Gateway {
         if let Some(channel) = self.neighbors.get(&next_hop) {
             self.send_on_channel_checked(channel, packet, next_hop);
         } else {
-            self.send_nack_packet_to_receiver(packet, NackType::ErrorInRouting(next_hop));
+            self.send_nack_packet_to_listener(packet, NackType::ErrorInRouting(next_hop));
         }
     }
 
@@ -101,7 +104,7 @@ impl Gateway {
     /// ErrorInRouting and (hopefully never) UnexpectedRecipient. There is no way that
     /// a Dropped or DestinationIsDrone gets sent, so there is no need to reverse the header
     /// or sending a nack for a specific fragment index
-    fn send_nack_packet_to_receiver(&self, packet: Packet, nack_type: NackType) {
+    fn send_nack_packet_to_listener(&self, packet: Packet, nack_type: NackType) {
         let fragment_index = match &packet.pack_type {
             PacketType::MsgFragment(fragment) => {
                 fragment.fragment_index
@@ -153,8 +156,9 @@ impl Gateway {
 mod test {
     use super::*;
     use std::collections::HashMap;
-    use crossbeam_channel::{select, unbounded};
-    use wg_2024::packet::{Ack, Packet};
+    use crossbeam_channel::unbounded;
+    use ntest::timeout;
+    use wg_2024::packet::{Ack, FloodRequest, NodeType, Packet};
 
     #[test]
     fn initialize() {
@@ -217,6 +221,199 @@ mod test {
             session_id: 0,
         };
         assert_eq!(received, expected);
+    }
+
+    #[test]
+    fn send_on_channel_checked_test_successful() {
+        let (tx, rx) = unbounded::<Packet>();
+
+        let (tx_drone, rx_drone) = unbounded::<Packet>();
+        let mut neighbors = HashMap::new();
+        neighbors.insert(1, tx_drone);
+
+        let gateway = Gateway::new(10, neighbors.clone(), tx);
+
+        let packet = Packet {
+            pack_type: PacketType::Ack(Ack{ fragment_index: 0 }),
+            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![10, 1, 2] },
+            session_id: 0,
+        };
+
+        gateway.send_on_channel_checked(
+            neighbors.get(&1).unwrap(), packet.clone(),
+            packet.routing_header.next_hop().unwrap()
+        );
+
+        let received = rx_drone.recv().unwrap();
+
+        assert_eq!(received, packet);
+    }
+
+    #[test]
+    #[timeout(2000)]
+    fn send_on_channel_checked_test_fail() {
+        let (listener_tx, listener_rx) = unbounded::<Packet>();
+
+        let (tx_drone, rx_drone) = unbounded::<Packet>();
+        let mut neighbors = HashMap::new();
+        neighbors.insert(1, tx_drone);
+
+        let gateway = Gateway::new(10, neighbors.clone(), listener_tx);
+
+        let packet = Packet {
+            pack_type: PacketType::Ack(Ack{ fragment_index: 0 }),
+            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![10, 1, 2] },
+            session_id: 0,
+        };
+
+        drop(rx_drone);
+        gateway.send_on_channel_checked(
+            neighbors.get(&1).unwrap(), packet.clone(),
+            packet.routing_header.next_hop().unwrap()
+        );
+
+        let received_from_listener = listener_rx.recv().unwrap();
+
+        let expected = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![10],
+            },
+            session_id: 0,
+            pack_type: PacketType::Nack(
+                Nack {
+                    fragment_index: 0,
+                    nack_type: NackType::ErrorInRouting(1),
+                }
+            ),
+        };
+
+        assert_eq!(received_from_listener, expected);
+    }
+
+    #[test]
+    #[timeout(2000)]
+    fn send_flood_request() {
+        let gateway_node_id = 9;
+
+        let (listener_tx, listener_rx) = unbounded::<Packet>();
+
+        let mut drones_rx = Vec::new();
+        let mut neighbors = HashMap::new();
+        let (tx_drone_1, rx_drone_1) = unbounded::<Packet>();
+        neighbors.insert(1, tx_drone_1);
+        drones_rx.push(rx_drone_1);
+        let (tx_drone_3, rx_drone_3) = unbounded::<Packet>();
+        neighbors.insert(3, tx_drone_3);
+        drones_rx.push(rx_drone_3);
+        let (tx_drone_10, rx_drone_10) = unbounded::<Packet>();
+        neighbors.insert(10, tx_drone_10);
+        drones_rx.push(rx_drone_10);
+
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), listener_tx);
+
+        let flood_request = FloodRequest {
+            flood_id: 0,
+            initiator_id: gateway_node_id,
+            path_trace: vec![(gateway_node_id, NodeType::Server)],
+        };
+        let packet = Packet {
+            pack_type: PacketType::FloodRequest(flood_request),
+            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+            session_id: 0,
+        };
+
+        gateway.send_flood(packet.clone());
+
+        for channel in &drones_rx {
+            let received = channel.recv().unwrap();
+            assert_eq!(received, packet);
+        }
+    }
+
+    #[test]
+    fn send_flood_response_successful() {
+        let gateway_node_id = 9;
+
+        let (listener_tx, listener_rx) = unbounded::<Packet>();
+
+        let mut neighbors = HashMap::new();
+        let (tx_drone_1, rx_drone_1) = unbounded::<Packet>();
+        neighbors.insert(1, tx_drone_1);
+
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), listener_tx);
+
+        let session_id = 0;
+        let flood_response = FloodResponse {
+            flood_id: 0,
+            path_trace: vec![
+                (gateway_node_id, NodeType::Server),
+                (1, NodeType::Drone),
+            ],
+        };
+
+        gateway.send_flood_response(flood_response.clone(), session_id);
+
+        let received = rx_drone_1.recv().unwrap();
+
+        let expected = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![],
+            },
+            session_id,
+            pack_type: PacketType::FloodResponse(flood_response),
+        };
+        assert_eq!(received, expected);
+    }
+
+    #[test]
+    #[should_panic("Tried to send a FloodResponse with no next hop")]
+    fn send_flood_response_with_no_next_hop() {
+        let gateway_node_id = 9;
+
+        let (listener_tx, listener_rx) = unbounded::<Packet>();
+
+        let mut neighbors = HashMap::new();
+        let (tx_drone_1, rx_drone_1) = unbounded::<Packet>();
+        neighbors.insert(1, tx_drone_1);
+
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), listener_tx);
+
+        let session_id = 0;
+        let flood_response = FloodResponse {
+            flood_id: 0,
+            path_trace: vec![
+                (gateway_node_id, NodeType::Server),
+            ],
+        };
+
+        gateway.send_flood_response(flood_response, session_id);
+    }
+
+    #[test]
+    #[should_panic("No channel found")]
+    fn send_flood_response_to_non_existent_node() {
+        let gateway_node_id = 9;
+
+        let (listener_tx, listener_rx) = unbounded::<Packet>();
+
+        let mut neighbors = HashMap::new();
+        let (tx_drone_1, rx_drone_1) = unbounded::<Packet>();
+        neighbors.insert(1, tx_drone_1);
+
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), listener_tx);
+
+        let session_id = 0;
+        let flood_response = FloodResponse {
+            flood_id: 0,
+            path_trace: vec![
+                (gateway_node_id, NodeType::Server),
+                (100, NodeType::Drone)
+            ],
+        };
+
+        gateway.send_flood_response(flood_response, session_id);
     }
 
     /*
