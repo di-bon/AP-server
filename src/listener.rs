@@ -22,7 +22,7 @@ pub enum ListenerCommand {
     Quit
 }
 
-struct Listener {
+pub struct Listener {
     node_id: NodeId,
     // listener -> transmitter
     transmitter_tx: Sender<Packet>, // this should only transmit packets of all types but PacketType::MsgFragment(Fragment)
@@ -38,7 +38,7 @@ struct Listener {
 }
 
 impl Listener {
-    fn new(
+    pub fn new(
         node_id: NodeId,
         transmitter_tx: Sender<Packet>,
         transmitter_rx: Receiver<Packet>,
@@ -57,7 +57,7 @@ impl Listener {
         }
     }
 
-    fn run(&mut self) {
+    pub fn run(&mut self) {
         loop {
             select! {
                 recv(self.drones_rx) -> packet => {

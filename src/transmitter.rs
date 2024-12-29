@@ -26,7 +26,7 @@ pub struct Transmitter {
     listener_rx: Receiver<Packet>, // receives ACKs, NACKs, FloodRequest and FloodResponse
     // server logic -> transmitter
     server_logic_channel: Receiver<Packet>, // HL message!
-    network_controller: NetworkController,
+    network_controller: Arc<NetworkController>,
     // transmitter -> transmission handlers
     transmission_handlers: HashMap<u64, Sender<Command>>,
     gateway: Arc<Gateway>,
@@ -47,7 +47,7 @@ impl Transmitter {
             node_id,
             listener_rx,
             server_logic_channel,
-            network_controller: NetworkController::new(node_id, node_type, gateway.clone()),
+            network_controller: Arc::new(NetworkController::new(node_id, node_type, gateway.clone())),
             transmission_handlers: HashMap::new(),
             gateway,
         }
