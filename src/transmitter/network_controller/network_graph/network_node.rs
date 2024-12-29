@@ -14,7 +14,8 @@ pub(super) struct NetworkNode {
 
 impl PartialEq for NetworkNode {
     fn eq(&self, other: &Self) -> bool {
-        todo!()
+        // TODO: is this ok?
+        self.node_id == other.node_id
     }
 }
 

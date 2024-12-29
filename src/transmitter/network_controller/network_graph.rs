@@ -18,13 +18,18 @@ pub(super) struct NetworkGraph {
 
 impl PartialEq for NetworkGraph {
     fn eq(&self, other: &Self) -> bool {
-        /*
-        let nodes = { self.nodes.read().unwrap().iter() };
-        let other_nodes = { other.nodes.read().unwrap().iter() };
-        for (n1, n2) in nodes.zip(other) {
-            // TODO: check nodes
+        let nodes = { self.nodes.read().unwrap() };
+        let other_nodes = { other.nodes.read().unwrap() };
+        if nodes.len() != other_nodes.len() {
+            return false;
         }
-         */
+        for i in 0..nodes.len() {
+            let n1 = nodes[i].clone();
+            let n2 = other_nodes[i].clone();
+            if !n1.read().unwrap().eq(&*n2.read().unwrap()) {
+                return false;
+            }
+        }
 
         self.node_id == other.node_id && self.node_type == other.node_type
     }
@@ -428,8 +433,8 @@ mod tests {
         let mut expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
         expected_2.write().unwrap().neighbors.write().unwrap().push(1);
 
-        assert_eq!(node_1, expected_1);
-        assert_eq!(node_2, expected_2);
+        assert_eq!(&*node_1.read().unwrap(), &*expected_1.read().unwrap());
+        assert_eq!(&*node_2.read().unwrap(), &*expected_2.read().unwrap());
     }
 
     #[test]
@@ -464,15 +469,15 @@ mod tests {
         let mut expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
         expected_2.write().unwrap().neighbors.write().unwrap().push(1);
 
-        assert_eq!(node_1, expected_1);
-        assert_eq!(node_2, expected_2);
+        assert_eq!(&*node_1.read().unwrap(), &*expected_1.read().unwrap());
+        assert_eq!(&*node_2.read().unwrap(), &*expected_2.read().unwrap());
 
         graph.delete_bidirectional_edge(1, 2);
         let expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
         let expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
 
-        assert_eq!(node_1, expected_1);
-        assert_eq!(node_2, expected_2);
+        assert_eq!(&*node_1.read().unwrap(), &*expected_1.read().unwrap());
+        assert_eq!(&*node_2.read().unwrap(), &*expected_2.read().unwrap());
     }
 
     #[test]
