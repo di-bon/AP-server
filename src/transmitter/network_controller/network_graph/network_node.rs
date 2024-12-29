@@ -1,17 +1,24 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::RwLock;
 use wg_2024::network::NodeId;
 use wg_2024::packet::NodeType;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub(super) struct NetworkNode {
     pub(super) node_id: NodeId,
     pub(super) node_type: NodeType,
     pub(super) num_of_dropped_packets: u64, // TODO: maybe it is useful to add some timestamps or whatever
     // to delete old dropped packets, so that if an unreliable drone gets its pdr changed it get
     // selected during the path finding part, or vice versa, if a reliable drone gets its pdr raised
-    pub(super) neighbors: RefCell<Vec<NodeId>>
+    pub(super) neighbors: RwLock<Vec<NodeId>>
 }
+
+impl PartialEq for NetworkNode {
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
+    }
+}
+
+impl Eq for NetworkNode { }
 
 impl NetworkNode {
     pub(super) fn new(
@@ -22,18 +29,18 @@ impl NetworkNode {
             node_id,
             node_type,
             num_of_dropped_packets: 0,
-            neighbors: RefCell::new(vec![]),
+            neighbors: RwLock::new(vec![]),
         }
     }
 
     pub(super) fn insert_edge(&self, to: NodeId) {
-        self.neighbors.borrow_mut().push(to)
+        self.neighbors.write().unwrap().push(to)
     }
 
     pub(super) fn remove_edge(&self, to: NodeId) {
-        let index = self.neighbors.borrow().iter().position(|node_id| *node_id == to);
+        let index = self.neighbors.read().unwrap().iter().position(|node_id| *node_id == to);
         if let Some(index) = index {
-            self.neighbors.borrow_mut().remove(index);
+            self.neighbors.write().unwrap().remove(index);
         }
     }
 
@@ -50,6 +57,7 @@ impl NetworkNode {
     }
 }
 
+// TODO: update tests to use Arc and RwLock instead of Rc and RefCell
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,7 +72,7 @@ mod tests {
             node_id,
             node_type,
             num_of_dropped_packets: 0,
-            neighbors: RefCell::new(vec![]),
+            neighbors: RwLock::new(vec![]),
         };
 
         assert_eq!(node, expected);
@@ -76,16 +84,13 @@ mod tests {
         let node_type = NodeType::Server;
         let mut node = NetworkNode::new(node_id, node_type);
 
-        let another_node = NetworkNode::new(1, NodeType::Drone);
-        let another_node = Rc::new(RefCell::new(another_node));
-
         node.insert_edge(1);
 
         let expected = NetworkNode {
             node_id,
             node_type,
             num_of_dropped_packets: 0,
-            neighbors: RefCell::new(vec![1]),
+            neighbors: RwLock::new(vec![1]),
         };
 
         assert_eq!(node, expected);
@@ -97,16 +102,13 @@ mod tests {
         let node_type = NodeType::Server;
         let mut node = NetworkNode::new(node_id, node_type);
 
-        let another_node = NetworkNode::new(1, NodeType::Drone);
-        let another_node = Rc::new(RefCell::new(another_node));
-
         node.insert_edge(1);
 
         let expected = NetworkNode {
             node_id,
             node_type,
             num_of_dropped_packets: 0,
-            neighbors: RefCell::new(vec![1]),
+            neighbors: RwLock::new(vec![1]),
         };
 
         assert_eq!(node, expected);
@@ -117,7 +119,7 @@ mod tests {
             node_id,
             node_type,
             num_of_dropped_packets: 0,
-            neighbors: RefCell::new(vec![]),
+            neighbors: RwLock::new(vec![]),
         };
 
         assert_eq!(node, expected);
@@ -137,7 +139,7 @@ mod tests {
             node_id,
             node_type,
             num_of_dropped_packets: 3,
-            neighbors: RefCell::new(vec![]),
+            neighbors: RwLock::new(vec![]),
         };
 
         assert_eq!(node, expected);
