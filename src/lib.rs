@@ -6,6 +6,7 @@ use messages::node_event::NodeEvent;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
 use crate::listener::{Listener, ListenerCommand};
+use crate::server_logic::ServerLogic;
 use crate::transmitter::Transmitter;
 
 mod transmitter;
@@ -16,6 +17,7 @@ mod server_logic;
 pub struct NullPointerDibServer {
     transmitter: Arc<Mutex<Transmitter>>,
     listener: Arc<Mutex<Listener>>,
+    server_logic: Arc<Mutex<ServerLogic>>
 }
 
 impl NullPointerDibServer {
@@ -26,14 +28,13 @@ impl NullPointerDibServer {
         listener_rx: Receiver<Packet>,
         // the HashMap containing every connected drone
         drones_tx: HashMap<NodeId, Sender<Packet>>,
-        // TODO: add simulation controller channel
+        simulation_controller_tx: Sender<NodeEvent>,
     ) -> Self {
         let (internal_transmitter_to_listener_tx, internal_transmitter_to_listener_rx) = unbounded::<Packet>();
         let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded::<Packet>();
         let (internal_listener_to_server_logic_tx, internal_listener_to_server_logic_rx) = unbounded::<Packet>();
         let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded::<Packet>();
         let (listener_commands_tx, listener_commands_rx) = unbounded::<ListenerCommand>();
-        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
 
         let transmitter = Transmitter::new(
             node_id,
@@ -52,13 +53,17 @@ impl NullPointerDibServer {
             internal_listener_to_server_logic_tx,
             listener_rx,
             listener_commands_rx,
-            simulation_controller_tx
+            simulation_controller_tx,
         );
         let listener = Arc::new(Mutex::new(listener));
 
+        let server_logic = ServerLogic::new();
+        let server_logic = Arc::new(Mutex::new(server_logic));
+
         Self {
             transmitter,
-            listener
+            listener,
+            server_logic,
         }
     }
 
@@ -73,10 +78,17 @@ impl NullPointerDibServer {
             transmitter_clone.lock().unwrap().run()
         });
 
+        let mut server_logic_clone = self.server_logic.clone();
+        let server_logic_handle = thread::spawn(move || {
+            server_logic_clone.lock().unwrap().run();
+        });
+
+
         // TODO: listen for commands (only shutdown) (either from channel or from CLI)
         // TODO: send shutdown command to listener and transmitter
 
         listener_handle.join();
+        server_logic_handle.join();
         transmitter_handle.join();
     }
 }

@@ -1,9 +1,13 @@
-struct ServerLogic {
+pub struct ServerLogic {
 
 }
 
 impl ServerLogic {
-    fn new() -> Self {
+    pub fn new() -> Self {
         todo!()
+    }
+
+    pub fn run(&mut self) {
+
     }
 }
