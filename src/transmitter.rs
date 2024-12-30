@@ -40,6 +40,7 @@ impl Transmitter {
         listener_tx: Sender<Packet>,
         server_logic_channel: Receiver<Packet>,
         connected_drones: HashMap<NodeId, Sender<Packet>>,
+        // TODO: add simulation_controller_tx
     ) -> Self {
         let gateway = Gateway::new(node_id, connected_drones, listener_tx);
         let gateway = Arc::new(gateway);
@@ -206,5 +207,93 @@ impl Transmitter {
                 self.gateway.forward(packet);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::thread;
+    use crossbeam_channel::unbounded;
+    use messages::node_event::NodeEvent;
+    use wg_2024::network::SourceRoutingHeader;
+    use wg_2024::packet::{FloodResponse, NodeType, Packet, PacketType};
+    use crate::listener::ListenerCommand;
+    use crate::transmitter::Transmitter;
+
+    #[test]
+    fn check_flood_response_processing() {
+        let node_id = 0;
+        let node_type = NodeType::Server;
+
+        let (internal_transmitter_to_listener_tx, internal_transmitter_to_listener_rx) = unbounded::<Packet>();
+        let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded::<Packet>();
+        let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded::<Packet>();
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+
+        let connected_drones = HashMap::new();
+
+        // let mut connected_drones = HashMap::new();
+        // let (drone_1_tx, drone_1_rx) = unbounded::<Packet>();
+        // connected_drones.insert(1, drone_1_tx);
+
+        let transmitter = Transmitter::new(
+            node_id,
+            node_type,
+            internal_listener_to_transmitter_rx,
+            internal_transmitter_to_listener_tx,
+            internal_server_logic_to_transmitter_rx,
+            connected_drones,
+        );
+
+        thread::spawn(move || {
+            transmitter.run();
+        });
+
+        let flood_response = FloodResponse {
+            flood_id: 0,
+            path_trace: vec![
+                (node_id, node_type),
+                (1, NodeType::Drone),
+                (2, NodeType::Client),
+            ],
+        };
+        let flood_response = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![],
+            },
+            session_id: 0,
+            pack_type: PacketType::FloodResponse(flood_response),
+        };
+        internal_listener_to_transmitter_tx.send(flood_response).expect("Cannot communicate with transmitter");
+
+        // TODO: complete this
+        // let expected = NodeEvent::KnownNetworkGraph(
+        //
+        // );
+
+        let flood_response = FloodResponse {
+            flood_id: 0,
+            path_trace: vec![
+                (node_id, node_type),
+                (1, NodeType::Drone),
+                (2, NodeType::Client),
+            ],
+        };
+        let flood_response = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![],
+            },
+            session_id: 0,
+            pack_type: PacketType::FloodResponse(flood_response),
+        };
+        internal_listener_to_transmitter_tx.send(flood_response).expect("Cannot communicate with transmitter");
+
+        // TODO: complete this
+        // let expected = NodeEvent::KnownNetworkGraph(
+        //
+        // );
     }
 }
