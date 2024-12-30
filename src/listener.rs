@@ -23,6 +23,7 @@ pub enum ListenerCommand {
     Quit
 }
 
+#[derive(Debug, Clone)]
 pub struct Listener {
     node_id: NodeId,
     // listener -> transmitter
@@ -37,6 +38,12 @@ pub struct Listener {
     simulation_controller_tx: Sender<NodeEvent>,
     // HashMap containing all the pairs (session_id, Storer)
     storers: HashMap<u64, Storer>,
+}
+
+impl PartialEq for Listener {
+    fn eq(&self, other: &Self) -> bool {
+        self.node_id == other.node_id && self.storers == other.storers
+    }
 }
 
 impl Listener {
@@ -257,6 +264,75 @@ mod tests {
 
         assert_eq!(listener.node_id, expected.node_id);
         assert_eq!(listener.storers.len(), expected.storers.len());
+    }
+
+    #[test]
+    fn check_storer() {
+        let (mut listener, _drones_tx, _server_logic_rx, transmitter_rx, command_tx) = create_listener_and_channels(1);
+
+        let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
+        let (drones_tx, drones_rx) = unbounded::<Packet>();
+        let (server_logic_tx, _server_logic_rx) = unbounded::<Packet>();
+        let (command_tx, command_rx) = unbounded::<ListenerCommand>();
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+
+        let mut expected = Listener {
+            node_id: 1,
+            transmitter_tx,
+            server_logic_tx,
+            drones_rx,
+            transmitter_rx,
+            command_rx,
+            simulation_controller_tx,
+            storers: Default::default(),
+        };
+
+        assert_eq!(listener, expected);
+
+        let session_id = 0;
+        let fragments = vec![
+            Fragment {
+                fragment_index: 0,
+                total_n_fragments: 3,
+                length: 128,
+                data: [0; 128],
+            },
+            Fragment {
+                fragment_index: 1,
+                total_n_fragments: 3,
+                length: 128,
+                data: [0; 128],
+            },
+            Fragment {
+                fragment_index: 2,
+                total_n_fragments: 3,
+                length: 128,
+                data: [0; 128],
+            }
+        ];
+
+        assert_eq!(listener.check_storer(session_id), None);
+
+        listener.store_fragment(session_id, fragments[0].clone());
+
+        let mut expected_storers = HashMap::new();
+        let expected_storer = Storer::new_from_fragment(fragments[0].clone());
+        expected_storers.insert(session_id, expected_storer);
+        expected.storers = expected_storers;
+
+        assert_eq!(listener, expected);
+        assert_eq!(listener.check_storer(session_id), Some(false));
+
+        listener.store_fragment(session_id, fragments[1].clone());
+        listener.store_fragment(session_id, fragments[2].clone());
+
+        let storer = expected.storers.get_mut(&session_id).unwrap();
+        storer.insert_fragment(fragments[1].clone());
+        storer.insert_fragment(fragments[2].clone());
+
+        assert_eq!(listener, expected);
+
+        assert_eq!(listener.check_storer(session_id), Some(true));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use std::collections::{HashMap};
 use wg_2024::packet::Fragment;
 
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct Storer {
     fragment_count: usize,
     fragments: HashMap<u64, Fragment>,
