@@ -1,26 +1,23 @@
 mod storer;
 
 use crate::listener::storer::Storer;
-use crossbeam_channel::{select, Receiver, Sender};
-use std::collections::HashMap;
-use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
-use messages::ChatResponse::MessageFrom;
+use assembler::Assembler;
+use crossbeam_channel::{select, Receiver, Sender};
 use messages::node_event::NodeEvent;
+use messages::ChatResponse::MessageFrom;
 use messages::Message;
+use std::collections::HashMap;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet, PacketType};
 
 /*
    TODO:
-   - reassemble fragments: X
-   - forward reassembled message to server logic: X
-   - maybe add commands: X
    - write tests
 */
 
 pub enum ListenerCommand {
-    Quit
+    Quit,
 }
 
 #[derive(Debug, Clone)]
@@ -157,7 +154,9 @@ impl Listener {
                 match storer {
                     Some(storer) => {
                         if storer.is_ready() {
-                            log::info!("Storer for session {session_id} is ready for message reassemble");
+                            log::info!(
+                                "Storer for session {session_id} is ready for message reassemble"
+                            );
                             let fragments = storer.get_fragments();
                             // TODO: call assembler to get a HL message
                             let reassembled_message = NaiveAssembler::reassemble(&fragments);
@@ -210,40 +209,72 @@ impl Listener {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::thread::sleep;
-    use std::time::Duration;
     use super::*;
     use crossbeam_channel::unbounded;
     use futures::task::SpawnExt;
     use ntest::timeout;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::thread::sleep;
+    use std::time::Duration;
     use wg_2024::network::SourceRoutingHeader;
-    use wg_2024::packet::{Ack, Packet, PacketType};
+    use wg_2024::packet::{
+        Ack, FloodRequest, FloodResponse, Nack, NackType, NodeType, Packet, PacketType,
+    };
 
-    fn create_listener_and_channels(node_id: NodeId) -> (Listener, Sender<Packet>, Receiver<Packet>, Receiver<Packet>, Sender<ListenerCommand>) {
-        let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
-        let (drones_tx, drones_rx) = unbounded::<Packet>();
-        let (server_logic_tx, server_logic_rx) = unbounded::<Packet>();
-        let (command_tx, command_rx) = unbounded::<ListenerCommand>();
+    fn create_listener_and_channels(
+        node_id: NodeId,
+    ) -> (
+        Listener,
+        Sender<Packet>,
+        Receiver<Packet>,
+        Receiver<Packet>,
+        Sender<ListenerCommand>,
+        Sender<Packet>,
+        Receiver<NodeEvent>,
+    ) {
+        let (internal_transmitter_to_listener_tx, internal_transmitter_to_listener_rx) =
+            unbounded::<Packet>();
+        let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) =
+            unbounded::<Packet>();
+        let (internal_listener_to_server_logic_tx, internal_listener_to_server_logic_rx) =
+            unbounded::<Packet>();
+        let (listener_commands_tx, listener_commands_rx) = unbounded::<ListenerCommand>();
+        let (listener_public_tx, listener_public_rx) = unbounded::<Packet>();
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
 
         let listener = Listener::new(
             node_id,
-            transmitter_tx,
-            transmitter_rx.clone(),
-            server_logic_tx,
-            drones_rx,
-            command_rx,
-            simulation_controller_tx
+            internal_listener_to_transmitter_tx,
+            internal_transmitter_to_listener_rx,
+            internal_listener_to_server_logic_tx,
+            listener_public_rx,
+            listener_commands_rx,
+            simulation_controller_tx,
         );
 
-        (listener, drones_tx, server_logic_rx, transmitter_rx, command_tx)
+        (
+            listener,
+            internal_transmitter_to_listener_tx,
+            internal_listener_to_transmitter_rx,
+            internal_listener_to_server_logic_rx,
+            listener_commands_tx,
+            listener_public_tx,
+            simulation_controller_rx,
+        )
     }
 
     #[test]
     fn initialize() {
-        let (listener, _drones_tx, _server_logic_rx, transmitter_rx, command_tx) = create_listener_and_channels(1);
+        let (
+            listener,
+            internal_transmitter_to_listener_tx,
+            internal_listener_to_transmitter_rx,
+            internal_listener_to_server_logic_rx,
+            listener_commands_tx,
+            listener_public_tx,
+            simulation_controller_rx,
+        ) = create_listener_and_channels(1);
 
         let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
         let (drones_tx, drones_rx) = unbounded::<Packet>();
@@ -268,8 +299,15 @@ mod tests {
 
     #[test]
     fn check_storer() {
-        let (mut listener, _drones_tx, _server_logic_rx, transmitter_rx, command_tx) = create_listener_and_channels(1);
-
+        let (
+            mut listener,
+            internal_transmitter_to_listener_tx,
+            internal_listener_to_transmitter_rx,
+            internal_listener_to_server_logic_rx,
+            listener_commands_tx,
+            listener_public_tx,
+            simulation_controller_rx,
+        ) = create_listener_and_channels(1);
         let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
         let (drones_tx, drones_rx) = unbounded::<Packet>();
         let (server_logic_tx, _server_logic_rx) = unbounded::<Packet>();
@@ -308,7 +346,7 @@ mod tests {
                 total_n_fragments: 3,
                 length: 128,
                 data: [0; 128],
-            }
+            },
         ];
 
         assert_eq!(listener.check_storer(session_id), None);
@@ -337,7 +375,15 @@ mod tests {
 
     #[test]
     fn forward_packet_to_transmitter_ok() {
-        let (listener, _drones_tx, _server_logic_rx, transmitter_rx, command_tx) = create_listener_and_channels(1);
+        let (
+            listener,
+            internal_transmitter_to_listener_tx,
+            internal_listener_to_transmitter_rx,
+            internal_listener_to_server_logic_rx,
+            listener_commands_tx,
+            listener_public_tx,
+            simulation_controller_rx,
+        ) = create_listener_and_channels(1);
 
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
@@ -360,7 +406,7 @@ mod tests {
         };
 
         select! {
-            recv(transmitter_rx) -> packet => {
+            recv(internal_listener_to_transmitter_rx) -> packet => {
                 if let Ok(packet) = packet {
                     assert_eq!(packet, expected);
                     return;
@@ -372,11 +418,18 @@ mod tests {
         assert!(false);
     }
 
-
     #[test]
     #[timeout(2000)]
     fn store_fragment_successful() {
-        let (listener, drones_tx, _server_logic_rx, _transmitter_rx, command_tx) = create_listener_and_channels(1);
+        let (
+            listener,
+            _internal_transmitter_to_listener_tx,
+            _internal_listener_to_transmitter_rx,
+            _internal_listener_to_server_logic_rx,
+            listener_commands_tx,
+            listener_public_tx,
+            _simulation_controller_rx,
+        ) = create_listener_and_channels(1);
         let listener = Arc::new(Mutex::new(listener));
         let listener_clone = Arc::clone(&listener);
 
@@ -387,7 +440,7 @@ mod tests {
 
         assert_eq!(listener.lock().unwrap().storers.len(), 0);
 
-        let fragment = Fragment{
+        let fragment = Fragment {
             fragment_index: 0,
             total_n_fragments: 2,
             length: 80,
@@ -402,10 +455,10 @@ mod tests {
             session_id: 10,
             pack_type: PacketType::MsgFragment(fragment.clone()),
         };
-        let _ = drones_tx.send(fragment_packet.clone());
+        let _ = listener_public_tx.send(fragment_packet.clone());
 
         sleep(Duration::from_millis(200));
-        let _ = command_tx.send(ListenerCommand::Quit);
+        let _ = listener_commands_tx.send(ListenerCommand::Quit);
 
         let storers = listener.lock().unwrap();
 
@@ -418,9 +471,220 @@ mod tests {
         assert_eq!(fragments, expected_fragments);
     }
 
+    #[test]
+    #[timeout(2000)]
+    fn receive_ack() {
+        let (
+            listener,
+            _internal_transmitter_to_listener_tx,
+            internal_listener_to_transmitter_rx,
+            _internal_listener_to_server_logic_rx,
+            _listener_commands_tx,
+            listener_public_tx,
+            _simulation_controller_rx,
+        ) = create_listener_and_channels(1);
+
+        let listener = Arc::new(Mutex::new(listener));
+        let listener_clone = Arc::clone(&listener);
+
+        let _ = thread::spawn(move || {
+            let mut listener = listener_clone.lock().unwrap();
+            listener.run()
+        });
+
+        let ack = Ack { fragment_index: 0 };
+        let ack = Packet {
+            routing_header: Default::default(),
+            session_id: 0,
+            pack_type: PacketType::Ack(ack),
+        };
+
+        let _ = listener_public_tx.send(ack.clone());
+
+        let received = internal_listener_to_transmitter_rx.recv().unwrap();
+
+        assert_eq!(received, ack);
+    }
+
+    #[test]
+    #[timeout(2000)]
+    fn receive_nack() {
+        let (
+            listener,
+            _internal_transmitter_to_listener_tx,
+            internal_listener_to_transmitter_rx,
+            _internal_listener_to_server_logic_rx,
+            _listener_commands_tx,
+            listener_public_tx,
+            _simulation_controller_rx,
+        ) = create_listener_and_channels(0);
+
+        let listener = Arc::new(Mutex::new(listener));
+        let listener_clone = Arc::clone(&listener);
+
+        let _ = thread::spawn(move || {
+            let mut listener = listener_clone.lock().unwrap();
+            listener.run()
+        });
+
+        let nack = Nack {
+            fragment_index: 0,
+            nack_type: NackType::ErrorInRouting(1),
+        };
+        let nack = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![0],
+            },
+            session_id: 0,
+            pack_type: PacketType::Nack(nack),
+        };
+
+        let _ = listener_public_tx.send(nack.clone());
+
+        let received = internal_listener_to_transmitter_rx.recv().unwrap();
+
+        assert_eq!(received, nack);
+    }
+
+    #[test]
+    #[timeout(2000)]
+    fn receive_flood_request() {
+        let (
+            listener,
+            _internal_transmitter_to_listener_tx,
+            internal_listener_to_transmitter_rx,
+            _internal_listener_to_server_logic_rx,
+            _listener_commands_tx,
+            listener_public_tx,
+            _simulation_controller_rx,
+        ) = create_listener_and_channels(0);
+
+        let listener = Arc::new(Mutex::new(listener));
+        let listener_clone = Arc::clone(&listener);
+
+        let _ = thread::spawn(move || {
+            let mut listener = listener_clone.lock().unwrap();
+            listener.run()
+        });
+
+        let flood_request = FloodRequest {
+            flood_id: 10,
+            initiator_id: 5,
+            path_trace: vec![(10, NodeType::Client), (4, NodeType::Drone)],
+        };
+        let flood_request = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![0],
+            },
+            session_id: 0,
+            pack_type: PacketType::FloodRequest(flood_request),
+        };
+
+        let _ = listener_public_tx.send(flood_request.clone());
+
+        let received = internal_listener_to_transmitter_rx.recv().unwrap();
+
+        assert_eq!(received, flood_request);
+    }
+
+    #[test]
+    #[timeout(2000)]
+    fn receive_flood_response() {
+        let (
+            listener,
+            _internal_transmitter_to_listener_tx,
+            internal_listener_to_transmitter_rx,
+            _internal_listener_to_server_logic_rx,
+            _listener_commands_tx,
+            listener_public_tx,
+            _simulation_controller_rx,
+        ) = create_listener_and_channels(0);
+
+        let listener = Arc::new(Mutex::new(listener));
+        let listener_clone = Arc::clone(&listener);
+
+        let _ = thread::spawn(move || {
+            let mut listener = listener_clone.lock().unwrap();
+            listener.run()
+        });
+
+        let flood_response = FloodResponse {
+            flood_id: 10,
+            path_trace: vec![(10, NodeType::Client), (4, NodeType::Drone)],
+        };
+        let flood_response = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![0],
+            },
+            session_id: 0,
+            pack_type: PacketType::FloodResponse(flood_response),
+        };
+
+        let _ = listener_public_tx.send(flood_response.clone());
+
+        let received = internal_listener_to_transmitter_rx.recv().unwrap();
+
+        assert_eq!(received, flood_response);
+    }
+
+    #[test]
+    #[timeout(2000)]
+    fn receive_message_fragment() {
+        let (
+            listener,
+            _internal_transmitter_to_listener_tx,
+            internal_listener_to_transmitter_rx,
+            _internal_listener_to_server_logic_rx,
+            listener_commands_tx,
+            listener_public_tx,
+            _simulation_controller_rx,
+        ) = create_listener_and_channels(0);
+
+        let listener = Arc::new(Mutex::new(listener));
+        let listener_clone = Arc::clone(&listener);
+
+        let _ = thread::spawn(move || {
+            let mut listener = listener_clone.lock().unwrap();
+            listener.run()
+        });
+
+        let fragment = Fragment {
+            fragment_index: 0,
+            total_n_fragments: 1,
+            length: 128,
+            data: [0; 128],
+        };
+        let packet = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![0],
+            },
+            session_id: 0,
+            pack_type: PacketType::MsgFragment(fragment.clone()),
+        };
+
+        let _ = listener_public_tx.send(packet.clone());
+
+        let received = internal_listener_to_transmitter_rx.recv().unwrap();
+
+        assert_eq!(received, packet);
+
+        let _ = listener_commands_tx.send(ListenerCommand::Quit);
+
+        let storer = {
+            let binding = listener.lock().unwrap();
+            binding.storers.get(&0).unwrap().clone()
+        };
+
+        assert_eq!(storer.get_fragments(), vec![fragment]);
+        assert_eq!(storer.is_ready(), true);
+    }
+
     /*
      TODO: test that need to be done:
-     - receiving different types of packets from drone channel
      - receiving different types of packets from tx channel
     */
 }
