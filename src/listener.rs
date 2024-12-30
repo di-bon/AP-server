@@ -6,8 +6,10 @@ use assembler::Assembler;
 use crossbeam_channel::{select, Receiver, Sender};
 use messages::node_event::NodeEvent;
 use std::collections::HashMap;
+use messages::{Message, MessageType};
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet, PacketType};
+use messages::MessageUtilities;
 
 /*
    TODO:
@@ -26,7 +28,7 @@ pub struct Listener {
     // transmitter -> listener
     transmitter_rx: Receiver<Packet>, // internal channel for error propagation
     // se -> server_logic
-    server_logic_tx: Sender<Packet>, // this should only transmit reassembled messages -> its type is high level message, not packet!
+    server_logic_tx: Sender<Message>, // this should only transmit reassembled messages -> its type is high level message, not packet!
     // drone(s) -> listener
     drones_rx: Receiver<Packet>,
     command_rx: Receiver<ListenerCommand>,
@@ -46,7 +48,7 @@ impl Listener {
         node_id: NodeId,
         transmitter_tx: Sender<Packet>,
         transmitter_rx: Receiver<Packet>,
-        server_logic_tx: Sender<Packet>,
+        server_logic_tx: Sender<Message>,
         drones_rx: Receiver<Packet>,
         command_rx: Receiver<ListenerCommand>,
         simulation_controller_tx: Sender<NodeEvent>,
@@ -156,21 +158,20 @@ impl Listener {
                                 "Storer for session {session_id} is ready for message reassemble"
                             );
                             let fragments = storer.get_fragments();
-                            // TODO: call assembler to get a HL message
-                            let reassembled_message = NaiveAssembler::reassemble(&fragments);
-                            log::info!("Reassembled message in bytes: {reassembled_message:?}");
-                            // TODO: cast bytes message into a 'real' message struct
-                            /*
-                            TODO: fix this placeholder code with appropriate server_logic_channel message types
-                            match self.server_logic_channel.send() {
+                            let message = NaiveAssembler::reassemble(&fragments);
+                            let message = String::from_utf8(message).unwrap();
+                            let message: Message = MessageUtilities::from_string(message).unwrap();
+                            log::info!("Reassembled message in bytes: {message:?}");
+                            self.storers.remove(&session_id);
+
+                            match self.server_logic_tx.send(message.clone()) {
                                 Ok(()) => {
-                                    self.storers.remove(&session_id);
+                                    log::info!("Listener successfully forwarded message {message:?} to server logic");
                                 },
                                 Err(err) => {
                                     panic!("Listener cannot forward messages to server logic");
                                 }
                             }
-                             */
                         }
                     }
                     None => {
@@ -214,6 +215,7 @@ mod tests {
     use std::thread;
     use std::thread::sleep;
     use std::time::Duration;
+    use messages::{RequestType, TextRequest};
     use wg_2024::network::SourceRoutingHeader;
     use wg_2024::packet::{
         Ack, FloodRequest, FloodResponse, Nack, NackType, NodeType, Packet, PacketType,
@@ -225,7 +227,7 @@ mod tests {
         Listener,
         Sender<Packet>,
         Receiver<Packet>,
-        Receiver<Packet>,
+        Receiver<Message>,
         Sender<ListenerCommand>,
         Sender<Packet>,
         Receiver<NodeEvent>,
@@ -235,7 +237,7 @@ mod tests {
         let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) =
             unbounded::<Packet>();
         let (internal_listener_to_server_logic_tx, internal_listener_to_server_logic_rx) =
-            unbounded::<Packet>();
+            unbounded::<Message>();
         let (listener_commands_tx, listener_commands_rx) = unbounded::<ListenerCommand>();
         let (listener_public_tx, listener_public_rx) = unbounded::<Packet>();
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
@@ -275,7 +277,7 @@ mod tests {
 
         let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
         let (drones_tx, drones_rx) = unbounded::<Packet>();
-        let (server_logic_tx, _server_logic_rx) = unbounded::<Packet>();
+        let (server_logic_tx, _server_logic_rx) = unbounded::<Message>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
 
@@ -307,7 +309,7 @@ mod tests {
         ) = create_listener_and_channels(1);
         let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
         let (drones_tx, drones_rx) = unbounded::<Packet>();
-        let (server_logic_tx, _server_logic_rx) = unbounded::<Packet>();
+        let (server_logic_tx, _server_logic_rx) = unbounded::<Message>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
 
@@ -629,12 +631,12 @@ mod tests {
 
     #[test]
     #[timeout(2000)]
-    fn receive_message_fragment() {
+    fn receive_message_fragments() {
         let (
             listener,
             _internal_transmitter_to_listener_tx,
             internal_listener_to_transmitter_rx,
-            _internal_listener_to_server_logic_rx,
+            internal_listener_to_server_logic_rx,
             listener_commands_tx,
             listener_public_tx,
             _simulation_controller_rx,
@@ -648,36 +650,35 @@ mod tests {
             listener.run()
         });
 
-        let fragment = Fragment {
-            fragment_index: 0,
-            total_n_fragments: 1,
-            length: 128,
-            data: [0; 128],
+        let message = Message {
+            source_id: 10,
+            session_id: 10,
+            content: MessageType::Request(RequestType::TextRequest(TextRequest::TextList)),
         };
-        let packet = Packet {
-            routing_header: SourceRoutingHeader {
-                hop_index: 0,
-                hops: vec![0],
-            },
-            session_id: 0,
-            pack_type: PacketType::MsgFragment(fragment.clone()),
-        };
+        let fragments = NaiveAssembler::disassemble(&message.stringify().into_bytes());
 
-        let _ = listener_public_tx.send(packet.clone());
+        for fragment in &fragments {
+            let fragment = fragment.clone();
+            let packet = Packet {
+                routing_header: SourceRoutingHeader {
+                    hop_index: 0,
+                    hops: vec![0],
+                },
+                session_id: 0,
+                pack_type: PacketType::MsgFragment(fragment.clone()),
+            };
 
-        let received = internal_listener_to_transmitter_rx.recv().unwrap();
+            let _ = listener_public_tx.send(packet.clone());
 
-        assert_eq!(received, packet);
+            let received = internal_listener_to_transmitter_rx.recv().unwrap();
+
+            assert_eq!(received, packet);
+        }
 
         let _ = listener_commands_tx.send(ListenerCommand::Quit);
 
-        let storer = {
-            let binding = listener.lock().unwrap();
-            binding.storers.get(&0).unwrap().clone()
-        };
-
-        assert_eq!(storer.get_fragments(), vec![fragment]);
-        assert_eq!(storer.is_ready(), true);
+        let received = internal_listener_to_server_logic_rx.recv().unwrap();
+        assert_eq!(received, message);
     }
 
     /*

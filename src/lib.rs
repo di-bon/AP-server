@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use messages::Message;
 use messages::node_event::NodeEvent;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
@@ -34,7 +35,7 @@ impl NullPointerDibServer {
     ) -> Self {
         let (internal_transmitter_to_listener_tx, internal_transmitter_to_listener_rx) = unbounded::<Packet>();
         let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded::<Packet>();
-        let (internal_listener_to_server_logic_tx, internal_listener_to_server_logic_rx) = unbounded::<Packet>();
+        let (internal_listener_to_server_logic_tx, internal_listener_to_server_logic_rx) = unbounded::<Message>();
         let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded::<Packet>();
         let (listener_commands_tx, listener_commands_rx) = unbounded::<ListenerCommand>();
 

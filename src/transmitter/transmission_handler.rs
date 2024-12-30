@@ -5,7 +5,7 @@ use std::time::Duration;
 use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
 use crossbeam_channel::{select, Receiver};
-use messages::{Message, TestTrait};
+use messages::{Message, MessageUtilities};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Fragment, Packet, PacketType};
 use crate::transmitter::Command;
