@@ -1,6 +1,8 @@
 mod network_graph;
 
+use std::collections::HashSet;
 use std::sync::Arc;
+use messages::node_event::NetworkNode;
 use rand::Rng;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodRequest, FloodResponse, NackType, NodeType, Packet, PacketType};
@@ -77,7 +79,7 @@ impl NetworkController {
                             None => panic!("Received a packet with no routing header")
                         };
                         self.network_graph.increment_num_of_dropped_packets(faulty_node_id);
-                        // TODO: send KnownNetworkGraph - overkill?
+                        // TODO: send KnownNetworkGraph - overkill? -> create a new event 'UpdateNumOfDroppedPackets(NodeId, num_of_dropped_packets)'
                     }
                 }
             },
@@ -86,6 +88,36 @@ impl NetworkController {
             }
         }
     }
+
+    /*
+    fn get_event_graph(&self) -> EventNetworkGraph {
+        let mut nodes = vec![];
+
+        for network_node in self.network_graph.nodes.read().unwrap().iter() {
+            let network_node = network_node.read().unwrap();
+            let neighbors = {
+                let mut neighbors: Vec<NodeId> = vec![];
+
+                for neighbor in network_node.neighbors.read().unwrap() {
+                    neighbors.push(neighbor)
+                }
+
+                neighbors
+            };
+            let result_node = EventNetworkNode {
+                node_id: network_node.node_id,
+                node_type: network_node.node_type,
+                num_of_dropped_packets: network_node.num_of_dropped_packets,
+                neighbors,
+            };
+            nodes.push(result_node);
+        }
+
+        EventNetworkGraph {
+            nodes
+        }
+    }
+     */
 }
 
 #[cfg(test)]

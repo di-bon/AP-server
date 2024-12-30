@@ -13,7 +13,7 @@ use crate::transmitter::network_controller::network_graph::network_node::Network
 pub(super) struct NetworkGraph {
     owner_node_id: NodeId,
     owner_node_type: NodeType,
-    nodes: RwLock<Vec<Arc<RwLock<NetworkNode>>>>
+    pub(super) nodes: RwLock<Vec<Arc<RwLock<NetworkNode>>>>
 }
 
 impl PartialEq for NetworkGraph {

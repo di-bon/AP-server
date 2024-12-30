@@ -4,12 +4,12 @@ use wg_2024::packet::NodeType;
 
 #[derive(Debug)]
 pub(super) struct NetworkNode {
-    pub(super) node_id: NodeId,
-    pub(super) node_type: NodeType,
-    pub(super) num_of_dropped_packets: u64, // TODO: maybe it is useful to add some timestamps or whatever
+    pub node_id: NodeId,
+    pub node_type: NodeType,
+    pub num_of_dropped_packets: u64, // TODO: maybe it is useful to add some timestamps or whatever
     // to delete old dropped packets, so that if an unreliable drone gets its pdr changed it get
     // selected during the path finding part, or vice versa, if a reliable drone gets its pdr raised
-    pub(super) neighbors: RwLock<Vec<NodeId>>
+    pub neighbors: RwLock<Vec<NodeId>>
 }
 
 impl PartialEq for NetworkNode {
