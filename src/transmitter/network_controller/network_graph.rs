@@ -11,8 +11,8 @@ use crate::transmitter::network_controller::network_graph::network_node::Network
 
 #[derive(Debug)]
 pub(super) struct NetworkGraph {
-    node_id: NodeId,
-    node_type: NodeType,
+    owner_node_id: NodeId,
+    owner_node_type: NodeType,
     nodes: RwLock<Vec<Arc<RwLock<NetworkNode>>>>
 }
 
@@ -31,7 +31,7 @@ impl PartialEq for NetworkGraph {
             }
         }
 
-        self.node_id == other.node_id && self.node_type == other.node_type
+        self.owner_node_id == other.owner_node_id && self.owner_node_type == other.owner_node_type
     }
 }
 
@@ -43,8 +43,8 @@ impl NetworkGraph {
         node_type: NodeType // owner's node_type
     ) -> Self {
         let result = Self {
-            node_id,
-            node_type,
+            owner_node_id: node_id,
+            owner_node_type: node_type,
             nodes: RwLock::new(vec![])
         };
         result.insert_node(node_id, node_type);
@@ -77,7 +77,7 @@ impl NetworkGraph {
     }
 
     pub(super) fn reset_graph(&mut self) {
-        self.nodes.write().unwrap().retain(|node| node.read().unwrap().node_id == self.node_id);
+        self.nodes.write().unwrap().retain(|node| node.read().unwrap().node_id == self.owner_node_id);
 
         // It may be faster to just do
         // self.nodes = RefCell::new(vec![]);
@@ -152,9 +152,9 @@ impl NetworkGraph {
         let mut to_be_examined: Vec<NodeId> = Vec::new();
 
         let mut costs: HashMap<NodeId, u64> = HashMap::new();
-        costs.insert(self.node_id, 0);
+        costs.insert(self.owner_node_id, 0);
 
-        to_be_examined.push(self.node_id);
+        to_be_examined.push(self.owner_node_id);
 
         while !to_be_examined.is_empty() {
             let current_node_id = to_be_examined[0];
@@ -166,7 +166,7 @@ impl NetworkGraph {
                 None => panic!("Error with nodes while getting paths"),
             };
 
-            if current_node.read().unwrap().node_type != NodeType::Drone && current_node.read().unwrap().node_id != self.node_id {
+            if current_node.read().unwrap().node_type != NodeType::Drone && current_node.read().unwrap().node_id != self.owner_node_id {
                 continue;
             }
 
@@ -213,11 +213,11 @@ impl NetworkGraph {
 
         let mut current = distances.get(&to)?;
         result.push(to);
-        while *current != self.node_id {
+        while *current != self.owner_node_id {
             result.push(*current);
             current = distances.get(current)?;
         }
-        result.push(self.node_id);
+        result.push(self.owner_node_id);
 
         result.reverse();
         Some(result)
@@ -240,8 +240,8 @@ mod tests {
         let node = NetworkNode::new(node_id, node_type);
         let node = Arc::new(RwLock::new(node));
         let expected = NetworkGraph {
-            node_id,
-            node_type,
+            owner_node_id: node_id,
+            owner_node_type: node_type,
             nodes: RwLock::new(vec![node]),
         };
 
@@ -266,8 +266,8 @@ mod tests {
         graph.insert_node(new_node_id, new_node_type);
 
         let expected = NetworkGraph {
-            node_id,
-            node_type,
+            owner_node_id: node_id,
+            owner_node_type: node_type,
             nodes: RwLock::new(vec![owner_node.clone(), node.clone(), node.clone()]),
         };
 
@@ -292,8 +292,8 @@ mod tests {
         graph.insert_node_if_not_present(new_node_id, new_node_type);
 
         let expected = NetworkGraph {
-            node_id,
-            node_type,
+            owner_node_id: node_id,
+            owner_node_type: node_type,
             nodes: RwLock::new(vec![owner_node.clone(), node.clone()]),
         };
 
@@ -318,8 +318,8 @@ mod tests {
         graph.insert_node(new_node_id, new_node_type);
 
         let expected = NetworkGraph {
-            node_id,
-            node_type,
+            owner_node_id: node_id,
+            owner_node_type: node_type,
             nodes: RwLock::new(vec![owner_node.clone(), node_1.clone(), node_1.clone()]),
         };
 
@@ -334,8 +334,8 @@ mod tests {
         graph.insert_node_if_not_present(new_node_id, new_node_type);
 
         let expected = NetworkGraph {
-            node_id,
-            node_type,
+            owner_node_id: node_id,
+            owner_node_type: node_type,
             nodes: RwLock::new(vec![owner_node.clone(), node_1.clone(), node_1.clone(), node_2.clone()]),
         };
 
@@ -344,8 +344,8 @@ mod tests {
         graph.reset_graph();
 
         let expected = NetworkGraph {
-            node_id,
-            node_type,
+            owner_node_id: node_id,
+            owner_node_type: node_type,
             nodes: RwLock::new(vec![owner_node.clone()]),
         };
 
@@ -387,8 +387,8 @@ mod tests {
         node_4.write().unwrap().neighbors.write().unwrap().push(3);
 
         let expected = NetworkGraph {
-            node_id,
-            node_type,
+            owner_node_id: node_id,
+            owner_node_type: node_type,
             nodes: RwLock::new(vec![
                 owner_node.clone(),
                 node_1.clone(),
@@ -411,8 +411,8 @@ mod tests {
         graph.insert_node_if_not_present(2, NodeType::Drone);
 
         let expected = NetworkGraph {
-            node_id,
-            node_type,
+            owner_node_id: node_id,
+            owner_node_type: node_type,
             nodes: RwLock::new(vec![
                 create_arc_rwlock_node(node_id, node_type),
                 create_arc_rwlock_node(1, NodeType::Drone),
@@ -447,8 +447,8 @@ mod tests {
         graph.insert_node_if_not_present(2, NodeType::Drone);
 
         let expected = NetworkGraph {
-            node_id,
-            node_type,
+            owner_node_id: node_id,
+            owner_node_type: node_type,
             nodes: RwLock::new(vec![
                 create_arc_rwlock_node(node_id, node_type),
                 create_arc_rwlock_node(1, NodeType::Drone),

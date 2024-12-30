@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
 use messages::ChatResponse::MessageFrom;
+use messages::node_event::NodeEvent;
 use messages::Message;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet, PacketType};
@@ -33,6 +34,7 @@ pub struct Listener {
     // drone(s) -> listener
     drones_rx: Receiver<Packet>,
     command_rx: Receiver<ListenerCommand>,
+    simulation_controller_tx: Sender<NodeEvent>,
     // HashMap containing all the pairs (session_id, Storer)
     storers: HashMap<u64, Storer>,
 }
@@ -45,6 +47,7 @@ impl Listener {
         server_logic_tx: Sender<Packet>,
         drones_rx: Receiver<Packet>,
         command_rx: Receiver<ListenerCommand>,
+        simulation_controller_tx: Sender<NodeEvent>,
     ) -> Self {
         Self {
             node_id,
@@ -53,6 +56,7 @@ impl Listener {
             server_logic_tx,
             drones_rx,
             command_rx,
+            simulation_controller_tx,
             storers: HashMap::default(),
         }
     }
@@ -214,6 +218,7 @@ mod tests {
         let (drones_tx, drones_rx) = unbounded::<Packet>();
         let (server_logic_tx, server_logic_rx) = unbounded::<Packet>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
 
         let listener = Listener::new(
             node_id,
@@ -222,6 +227,7 @@ mod tests {
             server_logic_tx,
             drones_rx,
             command_rx,
+            simulation_controller_tx
         );
 
         (listener, drones_tx, server_logic_rx, transmitter_rx, command_tx)
@@ -235,6 +241,8 @@ mod tests {
         let (drones_tx, drones_rx) = unbounded::<Packet>();
         let (server_logic_tx, _server_logic_rx) = unbounded::<Packet>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+
         let expected = Listener {
             node_id: 1,
             transmitter_tx,
@@ -242,6 +250,7 @@ mod tests {
             drones_rx,
             transmitter_rx,
             command_rx,
+            simulation_controller_tx,
             storers: Default::default(),
         };
 

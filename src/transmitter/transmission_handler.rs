@@ -5,7 +5,7 @@ use std::time::Duration;
 use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
 use crossbeam_channel::{select, Receiver};
-use messages::{DroneSend, Message, Response};
+use messages::Message;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Fragment, Packet, PacketType};
 use crate::transmitter::Command;
@@ -19,9 +19,9 @@ use crate::transmitter::network_controller::NetworkController;
 /// A `TransmissionHandler` struct that will handle the fragmentation and packet creation, sending
 /// said packets to the gateway. All created packets will share the same `SourceRoutingHeader`,
 /// unless it gets updated using the `update_source_routing_header` method
-pub(super) struct TransmissionHandler<M: DroneSend> {
+pub(super) struct TransmissionHandler {
     source_routing_header: SourceRoutingHeader,
-    message: Message<M>,
+    message: Message,
     fragments: Vec<Fragment>,
     source_id: NodeId,
     session_id: u64,
@@ -32,9 +32,9 @@ pub(super) struct TransmissionHandler<M: DroneSend> {
     received_acks: HashSet<u64>,
 }
 
-impl<M: DroneSend> TransmissionHandler<M> {
-    pub fn new(message: Message<M>, gateway: Arc<Gateway>, network_controller: Arc<NetworkController>, destination_node_id: NodeId, command_rx: Receiver<Command>) -> Self {
-        let to_be_fragmented = message.content.stringify();
+impl TransmissionHandler {
+    pub fn new(message: Message, gateway: Arc<Gateway>, network_controller: Arc<NetworkController>, destination_node_id: NodeId, command_rx: Receiver<Command>) -> Self {
+        let to_be_fragmented = message.content.clone();
         let fragments = NaiveAssembler::disassemble(&to_be_fragmented.into_bytes());
         let source_id = message.source_id;
         let session_id = message.session_id;
@@ -145,7 +145,7 @@ mod tests {
     use std::collections::HashMap;
     use crossbeam_channel::unbounded;
     use super::*;
-    use messages::{ChatResponse, Message};
+    use messages::{ChatResponse, Message, MessageType, ResponseType};
     use wg_2024::packet::{NodeType, Packet, PacketType};
 
     #[test]
@@ -153,7 +153,7 @@ mod tests {
         let message = Message {
             source_id: 0,
             session_id: 0,
-            content: ChatResponse::MessageSent,
+            content: MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent)),
         };
         let source_routing_header = SourceRoutingHeader {
             hop_index: 0,
@@ -185,7 +185,7 @@ mod tests {
         let message = Message {
             source_id: 1,
             session_id: 51,
-            content: ChatResponse::MessageSent,
+            content: MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent)),
         };
         let source_routing_header = SourceRoutingHeader {
             hop_index: 0,
@@ -220,7 +220,7 @@ mod tests {
         let message = Message {
             source_id: 1,
             session_id: 51,
-            content: ChatResponse::MessageSent,
+            content: MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent)),
         };
         let source_routing_header = SourceRoutingHeader {
             hop_index: 0,
