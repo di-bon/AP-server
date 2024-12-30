@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use wg_2024::packet::Fragment;
 
 #[derive(Debug, Clone, PartialEq)]

@@ -3,7 +3,7 @@ use wg_2024::network::NodeId;
 use wg_2024::packet::NodeType;
 
 #[derive(Debug)]
-pub(super) struct NetworkNode {
+pub struct NetworkNode {
     pub node_id: NodeId,
     pub node_type: NodeType,
     pub num_of_dropped_packets: u64, // TODO: maybe it is useful to add some timestamps or whatever
@@ -83,7 +83,7 @@ mod tests {
     fn add_neighbors() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let mut node = NetworkNode::new(node_id, node_type);
+        let node = NetworkNode::new(node_id, node_type);
 
         node.insert_edge(1);
 
@@ -101,7 +101,7 @@ mod tests {
     fn remove_neighbors() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let mut node = NetworkNode::new(node_id, node_type);
+        let node = NetworkNode::new(node_id, node_type);
 
         node.insert_edge(1);
 

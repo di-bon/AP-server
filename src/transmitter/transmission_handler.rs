@@ -157,14 +157,11 @@ mod tests {
             session_id: 0,
             content: MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent)),
         };
-        let source_routing_header = SourceRoutingHeader {
-            hop_index: 0,
-            hops: vec![],
-        };
-        let (listener_tx, listener_rx) = unbounded::<Packet>();
+
+        let (listener_tx, _listener_rx) = unbounded::<Packet>();
         let gateway = Gateway::new(0, HashMap::new(), listener_tx);
         let gateway = Arc::new(gateway);
-        let (command_tx, command_rx) = unbounded::<Command>();
+        let (_command_tx, command_rx) = unbounded::<Command>();
         let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone());
         let network_controller = Arc::new(network_controller);
         let destination_node_id: NodeId = 1;
@@ -189,10 +186,7 @@ mod tests {
             session_id: 51,
             content: MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent)),
         };
-        let source_routing_header = SourceRoutingHeader {
-            hop_index: 0,
-            hops: vec![],
-        };
+
         let (listener_tx, listener_rx) = unbounded::<Packet>();
         let gateway = Gateway::new(0, HashMap::new(), listener_tx);
         let gateway = Arc::new(gateway);

@@ -5,8 +5,6 @@ use assembler::naive_assembler::NaiveAssembler;
 use assembler::Assembler;
 use crossbeam_channel::{select, Receiver, Sender};
 use messages::node_event::NodeEvent;
-use messages::ChatResponse::MessageFrom;
-use messages::Message;
 use std::collections::HashMap;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Packet, PacketType};
@@ -211,7 +209,6 @@ impl Listener {
 mod tests {
     use super::*;
     use crossbeam_channel::unbounded;
-    use futures::task::SpawnExt;
     use ntest::timeout;
     use std::sync::{Arc, Mutex};
     use std::thread;

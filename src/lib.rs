@@ -1,3 +1,6 @@
+// TODO: remove this when project is finished
+#![allow(dead_code, unused_variables, unused_must_use)]
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -12,7 +15,6 @@ use crate::transmitter::Transmitter;
 mod transmitter;
 mod listener;
 mod server_logic;
-
 
 pub struct NullPointerDibServer {
     transmitter: Arc<Mutex<Transmitter>>,
@@ -68,17 +70,17 @@ impl NullPointerDibServer {
     }
 
     pub fn run(&mut self) {
-        let mut listener_clone = self.listener.clone();
+        let listener_clone = self.listener.clone();
         let listener_handle = thread::spawn(move || {
             listener_clone.lock().unwrap().run()
         });
 
-        let mut transmitter_clone = self.transmitter.clone();
+        let transmitter_clone = self.transmitter.clone();
         let transmitter_handle = thread::spawn(move || {
             transmitter_clone.lock().unwrap().run()
         });
 
-        let mut server_logic_clone = self.server_logic.clone();
+        let server_logic_clone = self.server_logic.clone();
         let server_logic_handle = thread::spawn(move || {
             server_logic_clone.lock().unwrap().run();
         });

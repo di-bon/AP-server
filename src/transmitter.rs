@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::Arc;
 use crossbeam_channel::{select, Receiver, Sender};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
@@ -218,7 +217,6 @@ mod tests {
     use messages::node_event::NodeEvent;
     use wg_2024::network::SourceRoutingHeader;
     use wg_2024::packet::{FloodResponse, NodeType, Packet, PacketType};
-    use crate::listener::ListenerCommand;
     use crate::transmitter::Transmitter;
 
     #[test]

@@ -1,8 +1,6 @@
 mod network_graph;
 
-use std::collections::HashSet;
 use std::sync::Arc;
-use messages::node_event::NetworkNode;
 use rand::Rng;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodRequest, FloodResponse, NackType, NodeType, Packet, PacketType};
@@ -131,7 +129,7 @@ mod tests {
     fn initialize() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let (listener_tx, listener_rx) = unbounded::<Packet>();
+        let (listener_tx, _listener_rx) = unbounded::<Packet>();
         let gateway = Gateway::new(node_id, HashMap::new(), listener_tx);
         let gateway = Arc::new(gateway);
 
@@ -150,7 +148,7 @@ mod tests {
     fn update_from_error_in_routing() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let (listener_tx, listener_rx) = unbounded::<Packet>();
+        let (listener_tx, _listener_rx) = unbounded::<Packet>();
         let gateway = Gateway::new(node_id, HashMap::new(), listener_tx);
         let gateway = Arc::new(gateway);
 
@@ -221,7 +219,7 @@ mod tests {
     fn update_from_dropped() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let (listener_tx, listener_rx) = unbounded::<Packet>();
+        let (listener_tx, _listener_rx) = unbounded::<Packet>();
         let gateway = Gateway::new(node_id, HashMap::new(), listener_tx);
         let gateway = Arc::new(gateway);
 

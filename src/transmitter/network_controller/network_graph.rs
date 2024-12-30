@@ -1,19 +1,16 @@
 mod network_node;
 
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::{Arc, RwLock};
-use rand::distr::uniform::SampleBorrow;
 use wg_2024::network::NodeId;
 use wg_2024::packet::NodeType;
 use crate::transmitter::network_controller::network_graph::network_node::NetworkNode;
 
 #[derive(Debug)]
-pub(super) struct NetworkGraph {
+pub struct NetworkGraph {
     owner_node_id: NodeId,
     owner_node_type: NodeType,
-    pub(super) nodes: RwLock<Vec<Arc<RwLock<NetworkNode>>>>
+    pub nodes: RwLock<Vec<Arc<RwLock<NetworkNode>>>>
 }
 
 impl PartialEq for NetworkGraph {
@@ -129,7 +126,7 @@ impl NetworkGraph {
             .nodes
             .write()
             .unwrap();
-        let mut faulty_node = borrow_mut
+        let faulty_node = borrow_mut
             .iter()
             .find(|node| node.read().unwrap().node_id == node_id);
         match faulty_node {
@@ -227,7 +224,6 @@ impl NetworkGraph {
 // TODO: update tests to use Arc and RwLock instead of Rc and RefCell
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
     use wg_2024::packet::FloodResponse;
     use super::*;
 
@@ -252,7 +248,7 @@ mod tests {
     fn insert_two_equal_nodes() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let mut graph = NetworkGraph::new(node_id, node_type);
+        let graph = NetworkGraph::new(node_id, node_type);
 
         let owner_node = NetworkNode::new(node_id, node_type);
         let owner_node = Arc::new(RwLock::new(owner_node));
@@ -278,7 +274,7 @@ mod tests {
     fn insert_node_if_not_present_twice() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let mut graph = NetworkGraph::new(node_id, node_type);
+        let graph = NetworkGraph::new(node_id, node_type);
 
         let owner_node = NetworkNode::new(node_id, node_type);
         let owner_node = Arc::new(RwLock::new(owner_node));
@@ -405,7 +401,7 @@ mod tests {
     fn add_bidirectional_graph() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let mut graph = NetworkGraph::new(node_id, node_type);
+        let graph = NetworkGraph::new(node_id, node_type);
 
         graph.insert_node_if_not_present(1, NodeType::Drone);
         graph.insert_node_if_not_present(2, NodeType::Drone);
@@ -427,10 +423,10 @@ mod tests {
         let node_1 = graph.nodes.read().unwrap()[1].clone();
         let node_2 = graph.nodes.read().unwrap()[2].clone();
 
-        let mut expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
+        let expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
         expected_1.write().unwrap().neighbors.write().unwrap().push(2);
 
-        let mut expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
+        let expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
         expected_2.write().unwrap().neighbors.write().unwrap().push(1);
 
         assert_eq!(&*node_1.read().unwrap(), &*expected_1.read().unwrap());
@@ -441,7 +437,7 @@ mod tests {
     fn delete_edge() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let mut graph = NetworkGraph::new(node_id, node_type);
+        let graph = NetworkGraph::new(node_id, node_type);
 
         graph.insert_node_if_not_present(1, NodeType::Drone);
         graph.insert_node_if_not_present(2, NodeType::Drone);
@@ -463,10 +459,10 @@ mod tests {
         let node_1 = graph.nodes.read().unwrap()[1].clone();
         let node_2 = graph.nodes.read().unwrap()[2].clone();
 
-        let mut expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
+        let expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
         expected_1.write().unwrap().neighbors.write().unwrap().push(2);
 
-        let mut expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
+        let expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
         expected_2.write().unwrap().neighbors.write().unwrap().push(1);
 
         assert_eq!(&*node_1.read().unwrap(), &*expected_1.read().unwrap());

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use crossbeam_channel::{SendError, Sender};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet;
 use wg_2024::packet::{FloodResponse, Nack, NackType, Packet, PacketType};
 
 #[derive(Debug)]
@@ -164,7 +163,7 @@ mod test {
 
     #[test]
     fn initialize() {
-        let (tx, rx) = unbounded::<Packet>();
+        let (tx, _rx) = unbounded::<Packet>();
         let gateway = Gateway::new(10, HashMap::new(), tx);
 
         assert_eq!(gateway.node_id, 10);
@@ -199,7 +198,7 @@ mod test {
 
     #[test]
     fn check_send_message_successful() {
-        let (tx, rx) = unbounded::<Packet>();
+        let (tx, _rx) = unbounded::<Packet>();
 
         let (tx_drone, rx_drone) = unbounded::<Packet>();
         let mut neighbors = HashMap::new();
@@ -227,7 +226,7 @@ mod test {
 
     #[test]
     fn send_on_channel_checked_test_successful() {
-        let (tx, rx) = unbounded::<Packet>();
+        let (tx, _rx) = unbounded::<Packet>();
 
         let (tx_drone, rx_drone) = unbounded::<Packet>();
         let mut neighbors = HashMap::new();
@@ -298,7 +297,7 @@ mod test {
     fn send_flood_request() {
         let gateway_node_id = 9;
 
-        let (listener_tx, listener_rx) = unbounded::<Packet>();
+        let (listener_tx, _listener_rx) = unbounded::<Packet>();
 
         let mut drones_rx = Vec::new();
         let mut neighbors = HashMap::new();
@@ -337,7 +336,7 @@ mod test {
     fn send_flood_response_successful() {
         let gateway_node_id = 9;
 
-        let (listener_tx, listener_rx) = unbounded::<Packet>();
+        let (listener_tx, _listener_rx) = unbounded::<Packet>();
 
         let mut neighbors = HashMap::new();
         let (tx_drone_1, rx_drone_1) = unbounded::<Packet>();
@@ -370,14 +369,14 @@ mod test {
     }
 
     #[test]
-    #[should_panic("Tried to send a FloodResponse with no next hop")]
+    #[should_panic(expected = "Tried to send a FloodResponse with no next hop")]
     fn send_flood_response_with_no_next_hop() {
         let gateway_node_id = 9;
 
-        let (listener_tx, listener_rx) = unbounded::<Packet>();
+        let (listener_tx, _listener_rx) = unbounded::<Packet>();
 
         let mut neighbors = HashMap::new();
-        let (tx_drone_1, rx_drone_1) = unbounded::<Packet>();
+        let (tx_drone_1, _rx_drone_1) = unbounded::<Packet>();
         neighbors.insert(1, tx_drone_1);
 
         let gateway = Gateway::new(gateway_node_id, neighbors.clone(), listener_tx);
@@ -394,14 +393,14 @@ mod test {
     }
 
     #[test]
-    #[should_panic("No channel found")]
+    #[should_panic(expected = "No channel found")]
     fn send_flood_response_to_non_existent_node() {
         let gateway_node_id = 9;
 
-        let (listener_tx, listener_rx) = unbounded::<Packet>();
+        let (listener_tx, _listener_rx) = unbounded::<Packet>();
 
         let mut neighbors = HashMap::new();
-        let (tx_drone_1, rx_drone_1) = unbounded::<Packet>();
+        let (tx_drone_1, _rx_drone_1) = unbounded::<Packet>();
         neighbors.insert(1, tx_drone_1);
 
         let gateway = Gateway::new(gateway_node_id, neighbors.clone(), listener_tx);
@@ -478,32 +477,32 @@ mod test {
 
     #[test]
     fn check_add_neighbor() {
-        let (tx, rx) = unbounded::<Packet>();
+        let (tx, _rx) = unbounded::<Packet>();
         let mut gateway = Gateway::new(10, HashMap::new(), tx);
         assert_eq!(gateway.neighbors.len(), 0);
-        let (tx_drone_5, rx_drone_5) = unbounded::<Packet>();
+        let (tx_drone_5, _rx_drone_5) = unbounded::<Packet>();
         gateway.add_neighbor(5, tx_drone_5);
         assert_eq!(gateway.neighbors.len(), 1);
-        let (tx_drone_5, rx_drone_5) = unbounded::<Packet>();
+        let (tx_drone_5, _rx_drone_5) = unbounded::<Packet>();
         gateway.add_neighbor(5, tx_drone_5);
         assert_eq!(gateway.neighbors.len(), 1);
-        let (tx_drone_8, rx_drone_8) = unbounded::<Packet>();
+        let (tx_drone_8, _rx_drone_8) = unbounded::<Packet>();
         gateway.add_neighbor(8, tx_drone_8);
         assert_eq!(gateway.neighbors.len(), 2);
     }
 
     #[test]
     fn check_remove_neighbor() {
-        let (tx, rx) = unbounded::<Packet>();
+        let (tx, _rx) = unbounded::<Packet>();
         let mut gateway = Gateway::new(10, HashMap::new(), tx);
         assert_eq!(gateway.neighbors.len(), 0);
-        let (tx_drone_5, rx_drone_5) = unbounded::<Packet>();
+        let (tx_drone_5, _rx_drone_5) = unbounded::<Packet>();
         gateway.add_neighbor(5, tx_drone_5);
         assert_eq!(gateway.neighbors.len(), 1);
-        let (tx_drone_5, rx_drone_5) = unbounded::<Packet>();
+        let (tx_drone_5, _rx_drone_5) = unbounded::<Packet>();
         gateway.add_neighbor(5, tx_drone_5);
         assert_eq!(gateway.neighbors.len(), 1);
-        let (tx_drone_8, rx_drone_8) = unbounded::<Packet>();
+        let (tx_drone_8, _rx_drone_8) = unbounded::<Packet>();
         gateway.add_neighbor(8, tx_drone_8);
         assert_eq!(gateway.neighbors.len(), 2);
         gateway.remove_neighbor(&8);
