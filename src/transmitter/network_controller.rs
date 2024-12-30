@@ -46,6 +46,7 @@ impl NetworkController {
 
     pub fn update_from_flood_response(&self, flood_response: FloodResponse) {
         self.network_graph.insert_edges_from_path_trace(&flood_response.path_trace)
+        // TODO: send KnownNetworkGraph
     }
 
     pub fn update_from_nack(&mut self, nack_packet: Packet) {
@@ -61,10 +62,12 @@ impl NetworkController {
                             Some(source) => source
                         };
                         self.network_graph.delete_bidirectional_edge(from, next_hop);
+                        // TODO: send KnownNetworkGraph
                     }
                     NackType::DestinationIsDrone | NackType::UnexpectedRecipient(_) => {
                         // Something went wrong, reset the network graph and flood the network again
                         self.network_graph.reset_graph();
+                        // TODO: send KnownNetworkGraph
                         self.flood_network();
                     }
                     NackType::Dropped => {
@@ -74,6 +77,7 @@ impl NetworkController {
                             None => panic!("Received a packet with no routing header")
                         };
                         self.network_graph.increment_num_of_dropped_packets(faulty_node_id);
+                        // TODO: send KnownNetworkGraph - overkill?
                     }
                 }
             },

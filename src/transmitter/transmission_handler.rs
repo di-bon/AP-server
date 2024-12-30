@@ -5,7 +5,7 @@ use std::time::Duration;
 use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
 use crossbeam_channel::{select, Receiver};
-use messages::Message;
+use messages::{Message, TestTrait};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Fragment, Packet, PacketType};
 use crate::transmitter::Command;
@@ -35,7 +35,7 @@ pub(super) struct TransmissionHandler {
 impl TransmissionHandler {
     pub fn new(message: Message, gateway: Arc<Gateway>, network_controller: Arc<NetworkController>, destination_node_id: NodeId, command_rx: Receiver<Command>) -> Self {
         let to_be_fragmented = message.content.clone();
-        let fragments = NaiveAssembler::disassemble(&to_be_fragmented.into_bytes());
+        let fragments = NaiveAssembler::disassemble(&to_be_fragmented.stringify().into_bytes());
         let source_id = message.source_id;
         let session_id = message.session_id;
         Self {
@@ -75,6 +75,7 @@ impl TransmissionHandler {
         };
         self.source_routing_header = source_routing_header;
 
+        // TODO: send StartingMessageTransmission - or should the server logic the one who sends this?
         // Send all packets at once
         for fragment in &self.fragments {
             let packet = self.create_packet(fragment.clone());
@@ -106,6 +107,7 @@ impl TransmissionHandler {
                             Command::Confirmed(fragment_index) => {
                                 self.received_acks.insert(fragment_index);
                                 if self.received_acks.len() == self.fragments.len() {
+                                    // TODO: send MessageSentSuccessfully
                                     break;
                                 }
                             }

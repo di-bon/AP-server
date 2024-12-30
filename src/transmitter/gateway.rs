@@ -43,7 +43,9 @@ impl Gateway {
     /// Sends a packet on the given channel. If channel.send fails, it sends an ErrorInRouting back to listener
     fn send_on_channel_checked(&self, channel: &Sender<Packet>, packet: Packet, next_hop: NodeId) {
         match channel.send(packet) {
-            Ok(()) => {},
+            Ok(()) => {
+                // TODO: send PacketSent
+            },
             Err(SendError(packet)) => {
                 self.send_nack_packet_to_listener(packet, NackType::ErrorInRouting(next_hop));
             }

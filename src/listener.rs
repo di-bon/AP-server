@@ -68,6 +68,7 @@ impl Listener {
                     match packet {
                         Ok(packet) => {
                             log::info!("Received packet {packet}");
+                            // TODO: send PacketReceived
                             self.process_drone_packet(packet);
                         },
                         Err(err) => {
