@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use crossbeam_channel::{select, Receiver, Sender};
+use crossbeam_channel::{select, unbounded, Receiver, Sender};
+use messages::Message;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodResponse, Nack, NackType, NodeType, Packet, PacketType};
 use crate::transmitter::network_controller::NetworkController;
 use crate::transmitter::gateway::Gateway;
+use crate::transmitter::transmission_handler::TransmissionHandler;
 
 mod network_controller;
 mod gateway;
@@ -24,7 +26,7 @@ pub struct Transmitter {
     // listener -> transmitter
     listener_rx: Receiver<Packet>, // receives ACKs, NACKs, FloodRequest and FloodResponse
     // server logic -> transmitter
-    server_logic_channel: Receiver<Packet>, // HL message!
+    server_logic_rx: Receiver<(NodeId, Message)>, // HL message!
     network_controller: Arc<NetworkController>,
     // transmitter -> transmission handlers
     transmission_handlers: HashMap<u64, Sender<Command>>,
@@ -37,7 +39,7 @@ impl Transmitter {
         node_type: NodeType,
         listener_rx: Receiver<Packet>,
         listener_tx: Sender<Packet>,
-        server_logic_channel: Receiver<Packet>,
+        server_logic_rx: Receiver<(NodeId, Message)>,
         connected_drones: HashMap<NodeId, Sender<Packet>>,
         // TODO: add simulation_controller_tx
     ) -> Self {
@@ -46,7 +48,7 @@ impl Transmitter {
         Self {
             node_id,
             listener_rx,
-            server_logic_channel,
+            server_logic_rx,
             network_controller: Arc::new(NetworkController::new(node_id, node_type, gateway.clone())),
             transmission_handlers: HashMap::new(),
             gateway,
@@ -58,26 +60,46 @@ impl Transmitter {
             select! {
                 recv(self.listener_rx) -> packet => {
                     if let Ok(packet) = packet {
-                        self.process_packet(packet);
+                        self.process_listener_packet(packet);
                     } else {
                         // TODO: panic?
                         panic!("Error while receiving from listener_channel");
                     }
                 },
-                recv(self.server_logic_channel) -> packet => {
+                recv(self.server_logic_rx) -> message_data => {
                     // to send a server logic message, create a new session_id, pass the high level
                     // message to a new transmission_handler, store a reference to that transmission
                     // handler in a hashmap containing the session_id as the key
                     // The transmission handler will handler the fragmentation by using the assembler
                     // The reference to the transmission handler will be removed when the
                     // transmission_handler will have received every ACK message
+                    if let Ok((destination_id, message)) = message_data {
+                        self.process_high_level_message(message, destination_id);
+                    } else {
+                        panic!("Error while receiving from server_logic")
+                    }
                 },
             }
         }
     }
 
+    fn process_high_level_message(&mut self, message: Message, destination_id: NodeId) {
+        let (command_tx, command_rx) = unbounded::<Command>();
+
+        let session_id = message.session_id; // TODO: or should be a random number?
+        let transmission_handler = TransmissionHandler::new(
+            message,
+            self.gateway.clone(),
+            self.network_controller.clone(),
+            destination_id,
+            command_rx
+        );
+
+        self.transmission_handlers.insert(session_id, command_tx);
+    }
+
     /// Processes a Packet that needs to be transmitted
-    fn process_packet(&mut self, packet: Packet) {
+    fn process_listener_packet(&mut self, packet: Packet) {
         match packet.pack_type {
             PacketType::Ack(ref ack) => {
                 // if an ack is received, tell the transmission_handler to handle
@@ -222,8 +244,9 @@ mod tests {
     use std::collections::HashMap;
     use std::thread;
     use crossbeam_channel::unbounded;
+    use messages::Message;
     use messages::node_event::NodeEvent;
-    use wg_2024::network::SourceRoutingHeader;
+    use wg_2024::network::{NodeId, SourceRoutingHeader};
     use wg_2024::packet::{FloodResponse, NodeType, Packet, PacketType};
     use crate::transmitter::Transmitter;
 
@@ -234,7 +257,7 @@ mod tests {
 
         let (internal_transmitter_to_listener_tx, internal_transmitter_to_listener_rx) = unbounded::<Packet>();
         let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded::<Packet>();
-        let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded::<Packet>();
+        let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded::<(NodeId, Message)>();
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
 
         let connected_drones = HashMap::new();
