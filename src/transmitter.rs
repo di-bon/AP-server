@@ -53,7 +53,7 @@ impl Transmitter {
         }
     }
 
-    pub fn run(&self) {
+    pub fn run(&mut self) {
         loop {
             select! {
                 recv(self.listener_rx) -> packet => {
@@ -77,7 +77,7 @@ impl Transmitter {
     }
 
     /// Processes a Packet that needs to be transmitted
-    fn process_packet(&self, packet: Packet) {
+    fn process_packet(&mut self, packet: Packet) {
         match packet.pack_type {
             PacketType::Ack(ref ack) => {
                 // if an ack is received, tell the transmission_handler to handle
@@ -124,27 +124,35 @@ impl Transmitter {
                     }
                 }
             },
-            PacketType::Nack(nack) => {
+            PacketType::Nack(ref nack) => {
                 // TODO: send a clone of avery nack to network controller
 
                 // if a nack is received, tell the transmission_handler to send
                 // the required fragment again
-                let session_id = packet.session_id;
-                let fragment_index = nack.fragment_index;
-                let handler_channel = match self.transmission_handlers.get(&session_id) {
-                    Some(channel) => {
-                        channel
-                    },
-                    None => {
-                        // TODO: what to do here? continue?
-                        panic!("no handler found for the required session_id");
-                    },
-                };
-                match handler_channel.send(Command::Resend(fragment_index)) {
-                    Ok(()) => {},
-                    Err(err) => {
-                        // TODO: ignore this?
-                        panic!("Cannot communicate with handler");
+                self.network_controller.update_from_nack(&packet);
+                match nack.nack_type {
+                    NackType::Dropped => {
+                        let session_id = packet.session_id;
+                        let fragment_index = nack.fragment_index;
+                        let handler_channel = match self.transmission_handlers.get(&session_id) {
+                            Some(channel) => {
+                                channel
+                            },
+                            None => {
+                                // TODO: what to do here? continue?
+                                panic!("no handler found for the required session_id");
+                            },
+                        };
+                        match handler_channel.send(Command::Resend(fragment_index)) {
+                            Ok(()) => {},
+                            Err(err) => {
+                                // TODO: ignore this?
+                                panic!("Cannot communicate with handler");
+                            }
+                        }
+                    }
+                    _ => {
+                        // TODO: what to do with other nacks?
                     }
                 }
             },
@@ -235,7 +243,7 @@ mod tests {
         // let (drone_1_tx, drone_1_rx) = unbounded::<Packet>();
         // connected_drones.insert(1, drone_1_tx);
 
-        let transmitter = Transmitter::new(
+        let mut transmitter = Transmitter::new(
             node_id,
             node_type,
             internal_listener_to_transmitter_rx,

@@ -17,9 +17,12 @@ impl PartialEq for NetworkGraph {
     fn eq(&self, other: &Self) -> bool {
         let nodes = { self.nodes.read().unwrap() };
         let other_nodes = { other.nodes.read().unwrap() };
+
         if nodes.len() != other_nodes.len() {
             return false;
         }
+
+        // TODO: better handle nodes comparison
         for i in 0..nodes.len() {
             let n1 = nodes[i].clone();
             let n2 = other_nodes[i].clone();

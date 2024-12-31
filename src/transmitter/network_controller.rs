@@ -1,18 +1,26 @@
 mod network_graph;
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use rand::Rng;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodRequest, FloodResponse, NackType, NodeType, Packet, PacketType};
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::network_controller::network_graph::NetworkGraph;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct NetworkController {
     node_id: NodeId,
-    network_graph: NetworkGraph,
+    network_graph: RwLock<NetworkGraph>,
     // network controller -> gateway
     gateway: Arc<Gateway> // gateway reference used to send all the FloodRequests
+}
+
+impl PartialEq for NetworkController {
+    fn eq(&self, other: &Self) -> bool {
+        self.node_id == other.node_id
+            && self.network_graph.read().unwrap().eq(&other.network_graph.read().unwrap())
+            && self.gateway.eq(&other.gateway)
+    }
 }
 
 impl NetworkController {
@@ -23,7 +31,7 @@ impl NetworkController {
     )-> Self {
         Self {
             node_id,
-            network_graph: NetworkGraph::new(node_id, node_type),
+            network_graph: RwLock::new(NetworkGraph::new(node_id, node_type)),
             gateway,
         }
     }
@@ -41,16 +49,16 @@ impl NetworkController {
     }
 
     pub fn get_path(&self, to: NodeId) -> Option<Vec<NodeId>> {
-        self.network_graph.get_path_to(to)
+        self.network_graph.read().unwrap().get_path_to(to)
     }
 
     pub fn update_from_flood_response(&self, flood_response: FloodResponse) {
-        self.network_graph.insert_edges_from_path_trace(&flood_response.path_trace)
+        self.network_graph.read().unwrap().insert_edges_from_path_trace(&flood_response.path_trace)
         // TODO: send KnownNetworkGraph
     }
 
-    pub fn update_from_nack(&mut self, nack_packet: Packet) {
-        match nack_packet.pack_type {
+    pub fn update_from_nack(&self, nack_packet: &Packet) {
+        match &nack_packet.pack_type {
             PacketType::Nack(nack) => {
                 match nack.nack_type {
                     NackType::ErrorInRouting(next_hop) => {
@@ -61,12 +69,12 @@ impl NetworkController {
                             }
                             Some(source) => source
                         };
-                        self.network_graph.delete_bidirectional_edge(from, next_hop);
+                        self.network_graph.read().unwrap().delete_bidirectional_edge(from, next_hop);
                         // TODO: send KnownNetworkGraph
                     }
                     NackType::DestinationIsDrone | NackType::UnexpectedRecipient(_) => {
                         // Something went wrong, reset the network graph and flood the network again
-                        self.network_graph.reset_graph();
+                        self.network_graph.write().unwrap().reset_graph();
                         // TODO: send KnownNetworkGraph
                         self.flood_network();
                     }
@@ -76,7 +84,7 @@ impl NetworkController {
                             Some(node) => node,
                             None => panic!("Received a packet with no routing header")
                         };
-                        self.network_graph.increment_num_of_dropped_packets(faulty_node_id);
+                        self.network_graph.read().unwrap().increment_num_of_dropped_packets(faulty_node_id);
                         // TODO: send KnownNetworkGraph - overkill? -> create a new event 'UpdateNumOfDroppedPackets(NodeId, num_of_dropped_packets)'
                     }
                 }
@@ -137,7 +145,7 @@ mod tests {
 
         let expected = NetworkController {
             node_id,
-            network_graph: NetworkGraph::new(node_id, node_type),
+            network_graph: RwLock::new(NetworkGraph::new(node_id, node_type)),
             gateway: gateway.clone(),
         };
 
@@ -208,7 +216,7 @@ mod tests {
             pack_type: PacketType::Nack(nack),
         };
 
-        network_controller.update_from_nack(nack);
+        network_controller.update_from_nack(&nack);
 
         let hops = network_controller.get_path(8);
         let expected = Some(vec![0, 2, 5, 8]);
@@ -259,7 +267,7 @@ mod tests {
             session_id: 0,
             pack_type: PacketType::Nack(nack),
         };
-        network_controller.update_from_nack(nack);
+        network_controller.update_from_nack(&nack);
 
         let hops = network_controller.get_path(3);
         let expected = Some(vec![0, 1, 4, 3]);

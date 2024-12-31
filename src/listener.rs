@@ -3,12 +3,12 @@ mod storer;
 use crate::listener::storer::Storer;
 use assembler::naive_assembler::NaiveAssembler;
 use assembler::Assembler;
-use crossbeam_channel::{select, Receiver, Sender};
+use crossbeam_channel::{select, Receiver, SendError, Sender};
 use messages::node_event::NodeEvent;
 use std::collections::HashMap;
 use messages::{Message, MessageType};
 use wg_2024::network::NodeId;
-use wg_2024::packet::{Fragment, Packet, PacketType};
+use wg_2024::packet::{Fragment, Nack, NackType, Packet, PacketType};
 use messages::MessageUtilities;
 
 /*
@@ -136,6 +136,38 @@ impl Listener {
             PacketType::MsgFragment(ref fragment) => {
                 log::info!("Processing a message fragment");
                 let session_id = packet.session_id;
+
+                let current_hop_id = match packet.routing_header.current_hop() {
+                    Some(id) => id,
+                    None => {
+                        // TODO: don't panic, send nack back and continue?
+                        panic!("Malformed routing header")
+                    }
+                };
+
+                let wrong_destination = current_hop_id != self.node_id;
+
+                if !packet.routing_header.is_last_hop() || wrong_destination {
+                    let nack = Nack {
+                        fragment_index: fragment.fragment_index,
+                        nack_type: NackType::UnexpectedRecipient(self.node_id),
+                    };
+                    let nack = Packet {
+                        routing_header: Default::default(),
+                        session_id,
+                        pack_type: PacketType::Nack(nack),
+                    };
+                    match self.transmitter_tx.send(nack) {
+                        Ok(()) => {
+                            log::info!("Send nack packet (UnexpectedRecipient) for fragment {} with session_id {session_id}", fragment.fragment_index);
+                        }
+                        Err(err) => {
+                            log::warn!("Cannot communicate with transmitter to send NACK packet");
+                            panic!("Listener cannot communicate with transmitter using the internal channel");
+                        }
+                    }
+                    return;
+                }
 
                 // this communication starts the ACK generation for the received fragment.
                 // the logic is handled by the transmitter
@@ -442,14 +474,14 @@ mod tests {
         let fragment = Fragment {
             fragment_index: 0,
             total_n_fragments: 2,
-            length: 80,
+            length: 128,
             data: [0; 128],
         };
 
         let fragment_packet = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
-                hops: vec![],
+                hops: vec![1],
             },
             session_id: 10,
             pack_type: PacketType::MsgFragment(fragment.clone()),
@@ -459,10 +491,10 @@ mod tests {
         sleep(Duration::from_millis(200));
         let _ = listener_commands_tx.send(ListenerCommand::Quit);
 
-        let storers = listener.lock().unwrap();
+        let listener = listener.lock().unwrap();
 
-        assert_eq!(storers.storers.len(), 1);
-        let storer = storers.storers.get(&10).unwrap();
+        assert_eq!(listener.storers.len(), 1);
+        let storer = listener.storers.get(&10).unwrap();
         assert!(!storer.is_ready());
 
         let fragments = storer.get_fragments();
