@@ -9,23 +9,25 @@ pub struct NetworkNode {
     pub num_of_dropped_packets: u64, // TODO: maybe it is useful to add some timestamps or whatever
     // to delete old dropped packets, so that if an unreliable drone gets its pdr changed it get
     // selected during the path finding part, or vice versa, if a reliable drone gets its pdr raised
-    pub neighbors: RwLock<Vec<NodeId>>
+    pub neighbors: RwLock<Vec<NodeId>>,
 }
 
 impl PartialEq for NetworkNode {
     fn eq(&self, other: &Self) -> bool {
-        // TODO: is this ok?
+        let self_guard = self.neighbors.read().unwrap();
+        let other_guard = other.neighbors.read().unwrap();
+
         self.node_id == other.node_id
+            && self.node_type == other.node_type
+            && self.num_of_dropped_packets == other.num_of_dropped_packets
+            && *self_guard == *other_guard
     }
 }
 
-impl Eq for NetworkNode { }
+impl Eq for NetworkNode {}
 
 impl NetworkNode {
-    pub(super) fn new(
-        node_id: NodeId,
-        node_type: NodeType,
-    ) -> Self {
+    pub fn new(node_id: NodeId, node_type: NodeType) -> Self {
         Self {
             node_id,
             node_type,
@@ -34,31 +36,35 @@ impl NetworkNode {
         }
     }
 
-    pub(super) fn insert_edge(&self, to: NodeId) {
+    pub fn insert_edge(&self, to: NodeId) {
         self.neighbors.write().unwrap().push(to)
     }
 
-    pub(super) fn remove_edge(&self, to: NodeId) {
-        let index = self.neighbors.read().unwrap().iter().position(|node_id| *node_id == to);
+    pub fn remove_edge(&self, to: NodeId) {
+        let index = self
+            .neighbors
+            .read()
+            .unwrap()
+            .iter()
+            .position(|node_id| *node_id == to);
         if let Some(index) = index {
             self.neighbors.write().unwrap().remove(index);
         }
     }
 
-    pub(super) fn increment_dropped_packets(&mut self) {
+    pub fn increment_dropped_packets(&mut self) {
         self.num_of_dropped_packets += 1
     }
 
-    pub(super) fn reset_num_of_dropped_packets(&mut self) {
+    pub fn reset_num_of_dropped_packets(&mut self) {
         self.num_of_dropped_packets = 0;
     }
 
-    pub(super) fn get_num_of_dropped_packets(&self) -> u64 {
+    pub fn get_num_of_dropped_packets(&self) -> u64 {
         self.num_of_dropped_packets
     }
 }
 
-// TODO: update tests to use Arc and RwLock instead of Rc and RefCell
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,13 +142,14 @@ mod tests {
         node.increment_dropped_packets();
         node.increment_dropped_packets();
 
-        let expected = NetworkNode {
-            node_id,
-            node_type,
-            num_of_dropped_packets: 3,
-            neighbors: RwLock::new(vec![]),
-        };
+        let expected = 3;
 
-        assert_eq!(node, expected);
+        assert_eq!(node.get_num_of_dropped_packets(), expected);
+
+        node.reset_num_of_dropped_packets();
+
+        let expected = 0;
+
+        assert_eq!(node.get_num_of_dropped_packets(), expected);
     }
 }
