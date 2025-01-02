@@ -19,6 +19,11 @@ pub(crate) enum Command {
     Quit
 }
 
+#[derive(Debug, Clone)]
+enum TransmissionHandlerEvent {
+    TransmissionCompleted(u64)
+}
+
 // TODO: add integration tests
 
 pub struct Transmitter {
@@ -30,6 +35,8 @@ pub struct Transmitter {
     network_controller: Arc<NetworkController>,
     // transmitter -> transmission handlers
     transmission_handlers: HashMap<u64, Sender<Command>>,
+    transmission_handler_event_rx: Receiver<TransmissionHandlerEvent>,
+    transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
     gateway: Arc<Gateway>,
 }
 
@@ -45,12 +52,17 @@ impl Transmitter {
     ) -> Self {
         let gateway = Gateway::new(node_id, connected_drones, listener_tx);
         let gateway = Arc::new(gateway);
+
+        let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
+
         Self {
             node_id,
             listener_rx,
             server_logic_rx,
             network_controller: Arc::new(NetworkController::new(node_id, node_type, gateway.clone())),
             transmission_handlers: HashMap::new(),
+            transmission_handler_event_tx,
+            transmission_handler_event_rx,
             gateway,
         }
     }
@@ -79,6 +91,12 @@ impl Transmitter {
                         panic!("Error while receiving from server_logic")
                     }
                 },
+                recv(self.transmission_handler_event_rx) -> event => {
+                    if let Ok(event) = event {
+                        let TransmissionHandlerEvent::TransmissionCompleted(session_id) = event;
+                        self.transmission_handlers.remove(&session_id);
+                    }
+                }
             }
         }
     }
@@ -92,7 +110,8 @@ impl Transmitter {
             self.gateway.clone(),
             self.network_controller.clone(),
             destination_id,
-            command_rx
+            command_rx,
+            self.transmission_handler_event_tx.clone(),
         );
 
         self.transmission_handlers.insert(session_id, command_tx);

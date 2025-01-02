@@ -4,11 +4,11 @@ use std::thread;
 use std::time::Duration;
 use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
-use crossbeam_channel::{select, Receiver};
+use crossbeam_channel::{select, Receiver, Sender};
 use messages::{Message, MessageUtilities};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Fragment, Packet, PacketType};
-use crate::transmitter::Command;
+use crate::transmitter::{Command, TransmissionHandlerEvent};
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::network_controller::NetworkController;
 // TODO: maybe also handle ACKs?
@@ -30,10 +30,18 @@ pub(super) struct TransmissionHandler {
     destination_node_id: NodeId,
     command_rx: Receiver<Command>,
     received_acks: HashSet<u64>,
+    transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
 }
 
 impl TransmissionHandler {
-    pub fn new(message: Message, gateway: Arc<Gateway>, network_controller: Arc<NetworkController>, destination_node_id: NodeId, command_rx: Receiver<Command>) -> Self {
+    pub fn new(
+        message: Message,
+        gateway: Arc<Gateway>,
+        network_controller: Arc<NetworkController>,
+        destination_node_id: NodeId,
+        command_rx: Receiver<Command>,
+        transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
+    ) -> Self {
         let to_be_fragmented = message.content.clone();
         let fragments = NaiveAssembler::disassemble(&to_be_fragmented.stringify().into_bytes());
         let source_id = message.source_id;
@@ -53,6 +61,7 @@ impl TransmissionHandler {
             destination_node_id,
             command_rx,
             received_acks: HashSet::new(),
+            transmission_handler_event_tx,
         }
     }
 
@@ -127,6 +136,16 @@ impl TransmissionHandler {
                 }
             }
         }
+        let event = TransmissionHandlerEvent::TransmissionCompleted(self.session_id);
+        match self.transmission_handler_event_tx.send(event.clone()) {
+            Ok(()) => {
+                log::info!("Transmission handler for session {} sent {:?} to transmitter", self.session_id, event);
+            }
+            Err(err) => {
+                log::warn!("Transmission handler for session {} cannot send TransmissionHandlerEvent messages to transmitter", self.session_id);
+            }
+        }
+        log::info!("Transmission handler for session {} terminated", self.session_id);
     }
 
     fn create_packet(&self, fragment: Fragment) -> Packet {
@@ -165,13 +184,15 @@ mod tests {
         let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone());
         let network_controller = Arc::new(network_controller);
         let destination_node_id: NodeId = 1;
+        let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
 
         let transmission_handler = TransmissionHandler::new(
             message.clone(),
             gateway,
             network_controller,
             destination_node_id,
-            command_rx
+            command_rx,
+            transmission_handler_event_tx,
         );
 
         assert_eq!(message.source_id, transmission_handler.source_id);
@@ -194,13 +215,15 @@ mod tests {
         let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone());
         let network_controller = Arc::new(network_controller);
         let destination_node_id: NodeId = 1;
+        let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
 
         let transmission_handler = TransmissionHandler::new(
             message.clone(),
             gateway,
             network_controller,
             destination_node_id,
-            command_rx
+            command_rx,
+            transmission_handler_event_tx
         );
 
         let expected_packet = Packet {
@@ -229,13 +252,15 @@ mod tests {
         let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone());
         let network_controller = Arc::new(network_controller);
         let destination_node_id: NodeId = 1;
+        let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
 
         let mut transmission_handler = TransmissionHandler::new(
             message.clone(),
             gateway,
             network_controller,
             destination_node_id,
-            command_rx
+            command_rx,
+            transmission_handler_event_tx,
         );
 
         let expected_source_routing_header = SourceRoutingHeader {
