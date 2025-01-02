@@ -10,8 +10,8 @@ use crate::transmitter::network_controller::network_graph::NetworkGraph;
 #[derive(Debug)]
 pub struct NetworkController {
     node_id: NodeId,
+    node_type: NodeType,
     network_graph: RwLock<NetworkGraph>,
-    // network controller -> gateway
     gateway: Arc<Gateway> // gateway reference used to send all the FloodRequests
 }
 
@@ -31,6 +31,7 @@ impl NetworkController {
     )-> Self {
         Self {
             node_id,
+            node_type,
             network_graph: RwLock::new(NetworkGraph::new(node_id, node_type)),
             gateway,
         }
@@ -43,7 +44,7 @@ impl NetworkController {
         let flood_request = Packet::new_flood_request(
             SourceRoutingHeader::new(vec![], 0),
             session_id,
-            FloodRequest::new(flood_id, self.node_id),
+            FloodRequest::initialize(flood_id, self.node_id, self.node_type),
         );
         self.gateway.send_flood(flood_request);
     }
@@ -129,7 +130,8 @@ impl NetworkController {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use crossbeam_channel::unbounded;
+    use crossbeam_channel::{unbounded, Sender};
+    use ntest::timeout;
     use wg_2024::packet::Nack;
     use super::*;
 
@@ -145,6 +147,7 @@ mod tests {
 
         let expected = NetworkController {
             node_id,
+            node_type,
             network_graph: RwLock::new(NetworkGraph::new(node_id, node_type)),
             gateway: gateway.clone(),
         };
@@ -272,5 +275,57 @@ mod tests {
         let hops = network_controller.get_path(3);
         let expected = Some(vec![0, 1, 4, 3]);
         assert_eq!(hops, expected);
+    }
+
+    #[test]
+    #[timeout(2000)]
+    fn check_flood_network() {
+        let node_id = 0;
+        let node_type = NodeType::Server;
+        let (listener_tx, _listener_rx) = unbounded::<Packet>();
+
+        let mut connected_drones:HashMap<NodeId, Sender<Packet>> = HashMap::new();
+
+        let drone_1_node_id = 1;
+        let (drone_1_tx, drone_1_rx) = unbounded::<Packet>();
+        connected_drones.insert(drone_1_node_id, drone_1_tx);
+
+        let drone_2_node_id = 2;
+        let (drone_2_tx, drone_2_rx) = unbounded::<Packet>();
+        connected_drones.insert(drone_2_node_id, drone_2_tx);
+
+        let gateway = Gateway::new(node_id, connected_drones, listener_tx);
+        let gateway = Arc::new(gateway);
+
+        let mut network_controller = NetworkController::new(node_id, node_type, gateway);
+
+        network_controller.flood_network();
+
+        let expected_source_routing_header = SourceRoutingHeader {
+            hop_index: 0,
+            hops: vec![],
+        };
+        let expected_initiator_id = node_id;
+        let expected_path_trace = vec![(node_id, node_type)];
+
+        let received = drone_1_rx.recv().unwrap();
+
+        assert_eq!(received.routing_header, expected_source_routing_header);
+        let received_flood_request = match &received.pack_type {
+            PacketType::FloodRequest(flood_request) => flood_request,
+            _ => panic!("Received unexpected packet type"),
+        };
+        assert_eq!(received_flood_request.initiator_id, expected_initiator_id);
+        assert_eq!(received_flood_request.path_trace, expected_path_trace);
+
+        let received = drone_2_rx.recv().unwrap();
+
+        assert_eq!(received.routing_header, expected_source_routing_header);
+        let received_flood_request = match &received.pack_type {
+            PacketType::FloodRequest(flood_request) => flood_request,
+            _ => panic!("Received unexpected packet type"),
+        };
+        assert_eq!(received_flood_request.initiator_id, expected_initiator_id);
+        assert_eq!(received_flood_request.path_trace, expected_path_trace);
     }
 }
