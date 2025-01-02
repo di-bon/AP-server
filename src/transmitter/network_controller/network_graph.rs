@@ -1,53 +1,54 @@
 mod network_node;
 
-use std::collections::HashMap;
+use crate::transmitter::network_controller::network_graph::network_node::NetworkNode;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use wg_2024::network::NodeId;
 use wg_2024::packet::NodeType;
-use crate::transmitter::network_controller::network_graph::network_node::NetworkNode;
 
 #[derive(Debug)]
 pub struct NetworkGraph {
     owner_node_id: NodeId,
     owner_node_type: NodeType,
-    pub nodes: RwLock<Vec<Arc<RwLock<NetworkNode>>>>
+    pub nodes: RwLock<Vec<Arc<RwLock<NetworkNode>>>>,
 }
 
 impl PartialEq for NetworkGraph {
     fn eq(&self, other: &Self) -> bool {
-        let nodes = { self.nodes.read().unwrap() };
-        let other_nodes = { other.nodes.read().unwrap() };
+        let nodes = self.nodes.read().unwrap();
+        let other_nodes = other.nodes.read().unwrap();
 
         if nodes.len() != other_nodes.len() {
             return false;
         }
 
-        // TODO: better handle nodes comparison
+        // if NodeType were to implement the Hash trait, this comparison could be done using a HashSet
         for i in 0..nodes.len() {
-            let n1 = nodes[i].clone();
-            let n2 = other_nodes[i].clone();
-            if !n1.read().unwrap().eq(&*n2.read().unwrap()) {
+            let node = nodes[i].clone();
+            let other_node = other_nodes[i].clone();
+            if !node.read().unwrap().eq(&*other_node.read().unwrap()) {
                 return false;
             }
         }
 
-        self.owner_node_id == other.owner_node_id && self.owner_node_type == other.owner_node_type
+        self.owner_node_id == other.owner_node_id
+            && self.owner_node_type == other.owner_node_type
     }
 }
 
-impl Eq for NetworkGraph { }
+impl Eq for NetworkGraph {}
 
 impl NetworkGraph {
     pub(super) fn new(
-        node_id: NodeId, // owner's node_id
-        node_type: NodeType // owner's node_type
+        owner_node_id: NodeId,
+        owner_node_type: NodeType,
     ) -> Self {
         let result = Self {
-            owner_node_id: node_id,
-            owner_node_type: node_type,
-            nodes: RwLock::new(vec![])
+            owner_node_id,
+            owner_node_type,
+            nodes: RwLock::new(vec![]),
         };
-        result.insert_node(node_id, node_type);
+        result.insert_node(owner_node_id, owner_node_type);
         result
     }
 
@@ -56,12 +57,16 @@ impl NetworkGraph {
         let node = RwLock::new(node);
         let node = Arc::new(node);
         self.nodes.write().unwrap().push(node);
+        log::info!("Inserted node with NodeId {node_id}");
     }
 
     fn insert_node_if_not_present(&self, node_id: NodeId, node_type: NodeType) {
         let insert_node = {
             let nodes = self.nodes.read().unwrap();
-            nodes.iter().find(|node| node.read().unwrap().node_id == node_id).is_none()
+            nodes
+                .iter()
+                .find(|node| node.read().unwrap().node_id == node_id)
+                .is_none()
         };
 
         if insert_node {
@@ -70,18 +75,25 @@ impl NetworkGraph {
     }
 
     fn delete_node(&self, node_id: NodeId) {
-        let index = self.nodes.read().unwrap().iter().position(|x| x.read().unwrap().node_id == node_id);
+        let index = self
+            .nodes
+            .read()
+            .unwrap()
+            .iter()
+            .position(|x| x.read().unwrap().node_id == node_id);
         if let Some(index) = index {
             self.nodes.write().unwrap().remove(index);
+            log::info!("Deleted node with NodeId {node_id}");
+        } else {
+            log::warn!("No node with NodeId {node_id} to be deleted");
         }
     }
 
     pub(super) fn reset_graph(&mut self) {
-        self.nodes.write().unwrap().retain(|node| node.read().unwrap().node_id == self.owner_node_id);
-
-        // It may be faster to just do
-        // self.nodes = RefCell::new(vec![]);
-        // self.insert_node(self.node_id, self.node_type);
+        let owner_node = NetworkNode::new(self.owner_node_id, self.owner_node_type);
+        let owner_node = Arc::new(RwLock::new(owner_node));
+        self.nodes = RwLock::new(vec![owner_node]);
+        log::info!("Network graph reset");
     }
 
     /// Inserts a bidirectional edge between a and b
@@ -89,46 +101,57 @@ impl NetworkGraph {
         let nodes = self.nodes.read().unwrap();
         let node_a = match nodes.iter().find(|node| node.read().unwrap().node_id == a) {
             Some(node) => node,
-            None => panic!("Node 'a' with node_id {a} does not exist"),
+            None => {
+                log::error!("Node 'a' with node_id {a} does not exist");
+                panic!("Node 'a' with node_id {a} does not exist");
+            },
         };
         let node_b = match nodes.iter().find(|node| node.read().unwrap().node_id == b) {
             Some(node) => node,
-            None => panic!("Node 'b' with node_id {b} does not exist"),
+            None => {
+                log::error!("Node with node_id {b} does not exist");
+                panic!("Node with node_id {b} does not exist");
+            },
         };
         node_a.write().unwrap().insert_edge(b);
         node_b.write().unwrap().insert_edge(a);
     }
 
     pub fn insert_edges_from_path_trace(&self, path_trace: &[(NodeId, NodeType)]) {
+        log::info!("Processing FloodResponse's path_trace");
         for (node_id, node_type) in path_trace.iter() {
             self.insert_node_if_not_present(*node_id, *node_type);
         }
 
-        for ((first_id, _first_type), (second_id, _second_type)) in path_trace.iter().zip(path_trace.iter().skip(1)) {
+        for ((first_id, _first_type), (second_id, _second_type)) in
+            path_trace.iter().zip(path_trace.iter().skip(1))
+        {
             self.insert_bidirectional_edge(*first_id, *second_id);
         }
+        log::info!("FloodResponse's path_trace successfully processed");
     }
 
     pub(super) fn delete_bidirectional_edge(&self, from: NodeId, to: NodeId) {
         let nodes = self.nodes.read().unwrap();
-        let node_from = nodes.iter().find(|node| node.read().unwrap().node_id == from);
+        let node_from = nodes
+            .iter()
+            .find(|node| node.read().unwrap().node_id == from);
         let node_to = nodes.iter().find(|node| node.read().unwrap().node_id == to);
         match (node_from, node_to) {
             (Some(node_from), Some(node_to)) => {
                 node_from.write().unwrap().remove_edge(to);
                 node_to.write().unwrap().remove_edge(from);
-            },
+            }
             _ => {
-                // TODO: don't do anything?
+                log::warn!("Cannot delete bidirectional edge between {from} and {to}: at least one of them does not exist");
             }
         }
     }
 
     pub(super) fn increment_num_of_dropped_packets(&self, node_id: NodeId) {
-        let borrow_mut = self
-            .nodes
-            .write()
-            .unwrap();
+        use wg_2024::packet::NackType;
+
+        let borrow_mut = self.nodes.write().unwrap();
         let faulty_node = borrow_mut
             .iter()
             .find(|node| node.read().unwrap().node_id == node_id);
@@ -140,6 +163,7 @@ impl NetworkGraph {
                 // just ignore this case?
                 // It may arise when an old Nack::Dropped is received after resetting the
                 // graph and flooding it again
+                log::info!("Ignoring old {:?}: graph has already been reset", NackType::Dropped);
             }
         }
     }
@@ -147,13 +171,10 @@ impl NetworkGraph {
     /// Returns an HashMap associating every node to its predecessor
     fn get_paths(&self) -> HashMap<NodeId, NodeId> {
         let mut come_from: HashMap<NodeId, NodeId> = HashMap::new();
-        // come_from.insert(self.node_id, self.node_id); // ??
-
         let mut to_be_examined: Vec<NodeId> = Vec::new();
-
         let mut costs: HashMap<NodeId, u64> = HashMap::new();
-        costs.insert(self.owner_node_id, 0);
 
+        costs.insert(self.owner_node_id, 0);
         to_be_examined.push(self.owner_node_id);
 
         while !to_be_examined.is_empty() {
@@ -161,35 +182,60 @@ impl NetworkGraph {
             to_be_examined.remove(0);
 
             let borrow = self.nodes.read().unwrap();
-            let current_node = match borrow.iter().find(|node| node.read().unwrap().node_id == current_node_id) {
+            let current_node = match borrow
+                .iter()
+                .find(|node| node.read().unwrap().node_id == current_node_id)
+            {
                 Some(node) => node,
-                None => panic!("Error with nodes while getting paths"),
+                None => {
+                    log::error!("Cannot get node with NodeId {current_node_id} while getting min paths");
+                    panic!("Cannot get node with NodeId {current_node_id} while getting min paths");
+                },
             };
 
-            if current_node.read().unwrap().node_type != NodeType::Drone && current_node.read().unwrap().node_id != self.owner_node_id {
+            if current_node.read().unwrap().node_type != NodeType::Drone
+                && current_node.read().unwrap().node_id != self.owner_node_id
+            {
                 continue;
             }
 
             let current_cost = match costs.get(&current_node_id) {
                 Some(cost) => *cost,
-                None => panic!("Error with costs while getting paths"),
+                None => {
+                    log::error!("Cannot get node's cost with NodeId {current_node_id} while getting min paths");
+                    panic!("Cannot get node's cost with NodeId {current_node_id} while getting min paths");
+                },
             };
 
-            for neighbor_node_id in current_node.read().unwrap().neighbors.read().unwrap().iter() {
+            for neighbor_node_id in current_node
+                .read()
+                .unwrap()
+                .neighbors
+                .read()
+                .unwrap()
+                .iter()
+            {
                 let neighbor_current_cost = match costs.get(neighbor_node_id) {
                     Some(cost) => *cost,
                     None => u64::MAX,
                 };
 
                 let neighbor = {
-                    let borrow = self.nodes.read().unwrap();
-                    match borrow.iter().find(|node| node.read().unwrap().node_id == *neighbor_node_id) {
+                    let binding = self.nodes.read().unwrap();
+                    match binding
+                        .iter()
+                        .find(|node| node.read().unwrap().node_id == *neighbor_node_id)
+                    {
                         Some(node) => node.clone(),
-                        None => panic!("Node not found"),
+                        None => {
+                            log::error!("Cannot find neighbor with NodeId {neighbor_node_id} for current node {current_node_id}");
+                            panic!("Cannot find neighbor with NodeId {neighbor_node_id} for current node {current_node_id}");
+                        },
                     }
                 };
 
-                let neighbor_proposed_cost = current_cost + neighbor.read().unwrap().num_of_dropped_packets;
+                let neighbor_proposed_cost =
+                    current_cost + neighbor.read().unwrap().num_of_dropped_packets;
 
                 if neighbor_proposed_cost < neighbor_current_cost {
                     come_from.insert(*neighbor_node_id, current_node_id);
@@ -224,11 +270,10 @@ impl NetworkGraph {
     }
 }
 
-// TODO: update tests to use Arc and RwLock instead of Rc and RefCell
 #[cfg(test)]
 mod tests {
-    use wg_2024::packet::FloodResponse;
     use super::*;
+    use wg_2024::packet::FloodResponse;
 
     #[test]
     fn initialize() {
@@ -335,7 +380,12 @@ mod tests {
         let expected = NetworkGraph {
             owner_node_id: node_id,
             owner_node_type: node_type,
-            nodes: RwLock::new(vec![owner_node.clone(), node_1.clone(), node_1.clone(), node_2.clone()]),
+            nodes: RwLock::new(vec![
+                owner_node.clone(),
+                node_1.clone(),
+                node_1.clone(),
+                node_2.clone(),
+            ]),
         };
 
         assert_eq!(graph, expected);
@@ -376,7 +426,13 @@ mod tests {
         let node_3 = create_arc_rwlock_node(3, NodeType::Drone);
         let node_4 = create_arc_rwlock_node(4, NodeType::Client);
 
-        owner_node.write().unwrap().neighbors.write().unwrap().push(1);
+        owner_node
+            .write()
+            .unwrap()
+            .neighbors
+            .write()
+            .unwrap()
+            .push(1);
         node_1.write().unwrap().neighbors.write().unwrap().push(0);
         node_1.write().unwrap().neighbors.write().unwrap().push(2);
         node_2.write().unwrap().neighbors.write().unwrap().push(1);
@@ -427,10 +483,22 @@ mod tests {
         let node_2 = graph.nodes.read().unwrap()[2].clone();
 
         let expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
-        expected_1.write().unwrap().neighbors.write().unwrap().push(2);
+        expected_1
+            .write()
+            .unwrap()
+            .neighbors
+            .write()
+            .unwrap()
+            .push(2);
 
         let expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
-        expected_2.write().unwrap().neighbors.write().unwrap().push(1);
+        expected_2
+            .write()
+            .unwrap()
+            .neighbors
+            .write()
+            .unwrap()
+            .push(1);
 
         assert_eq!(&*node_1.read().unwrap(), &*expected_1.read().unwrap());
         assert_eq!(&*node_2.read().unwrap(), &*expected_2.read().unwrap());
@@ -463,10 +531,22 @@ mod tests {
         let node_2 = graph.nodes.read().unwrap()[2].clone();
 
         let expected_1 = create_arc_rwlock_node(1, NodeType::Drone);
-        expected_1.write().unwrap().neighbors.write().unwrap().push(2);
+        expected_1
+            .write()
+            .unwrap()
+            .neighbors
+            .write()
+            .unwrap()
+            .push(2);
 
         let expected_2 = create_arc_rwlock_node(2, NodeType::Drone);
-        expected_2.write().unwrap().neighbors.write().unwrap().push(1);
+        expected_2
+            .write()
+            .unwrap()
+            .neighbors
+            .write()
+            .unwrap()
+            .push(1);
 
         assert_eq!(&*node_1.read().unwrap(), &*expected_1.read().unwrap());
         assert_eq!(&*node_2.read().unwrap(), &*expected_2.read().unwrap());
@@ -532,6 +612,69 @@ mod tests {
 
         let hops = graph.get_path_to(4);
         assert_eq!(hops, None);
+    }
+
+    #[test]
+    fn check_reset_graph() {
+        let node_id = 0;
+        let node_type = NodeType::Server;
+        let mut graph = NetworkGraph::new(node_id, node_type);
+
+        let owner_node = create_arc_rwlock_node(node_id, node_type);
+        let nodes = RwLock::new(vec![owner_node.clone()]);
+
+        let expected = NetworkGraph {
+            owner_node_id: node_id,
+            owner_node_type: node_type,
+            nodes,
+        };
+
+        assert_eq!(graph, expected);
+
+        graph.reset_graph();
+
+        assert_eq!(graph, expected);
+
+        let flood_response = FloodResponse {
+            flood_id: 0,
+            path_trace: vec![
+                (node_id, node_type),
+                (1, NodeType::Drone),
+            ],
+        };
+
+        graph.insert_edges_from_path_trace(&flood_response.path_trace);
+
+        let owner_node = create_arc_rwlock_node(node_id, node_type);
+        owner_node.write().unwrap().neighbors.write().unwrap().push(1);
+        let drone_1 = create_arc_rwlock_node(1, NodeType::Drone);
+        drone_1.write().unwrap().neighbors.write().unwrap().push(node_id);
+        let nodes = RwLock::new(
+            vec![
+                owner_node,
+                drone_1,
+            ]
+        );
+        let expected = NetworkGraph {
+            owner_node_id: node_id,
+            owner_node_type: node_type,
+            nodes,
+        };
+
+        assert_eq!(graph, expected);
+
+        graph.reset_graph();
+
+        let owner_node = create_arc_rwlock_node(node_id, node_type);
+        let nodes = RwLock::new(vec![owner_node]);
+
+        let expected = NetworkGraph {
+            owner_node_id: node_id,
+            owner_node_type: node_type,
+            nodes,
+        };
+
+        assert_eq!(graph, expected);
     }
 
     fn create_arc_rwlock_node(node_id: NodeId, node_type: NodeType) -> Arc<RwLock<NetworkNode>> {
