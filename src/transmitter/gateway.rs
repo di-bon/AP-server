@@ -53,6 +53,7 @@ impl Gateway {
     fn send_on_channel_checked(&self, channel: &Sender<Packet>, packet: Packet, next_hop: NodeId) {
         match channel.send(packet.clone()) {
             Ok(()) => {
+                // TODO: send PacketSent
                 log::info!("Packet {packet} successfully sent to {next_hop}");
             }
             Err(SendError(packet)) => {
