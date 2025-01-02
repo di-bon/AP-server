@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crossbeam_channel::{SendError, Sender};
+use std::collections::HashMap;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodResponse, Nack, NackType, Packet, PacketType};
 
@@ -16,10 +16,14 @@ impl PartialEq<Self> for Gateway {
     }
 }
 
-impl Eq for Gateway { }
+impl Eq for Gateway {}
 
 impl Gateway {
-    pub fn new(node_id: NodeId, neighbors: HashMap<NodeId, Sender<Packet>>, listener_channel: Sender<Packet>) -> Self {
+    pub fn new(
+        node_id: NodeId,
+        neighbors: HashMap<NodeId, Sender<Packet>>,
+        listener_channel: Sender<Packet>,
+    ) -> Self {
         Self {
             node_id,
             neighbors,
@@ -30,8 +34,14 @@ impl Gateway {
     /// Sends a Packet to every connected neighboring node
     pub fn send_flood(&self, packet: Packet) {
         if !matches!(packet.pack_type, PacketType::FloodRequest(_)) {
-            log::warn!("Cannot flood the network with a packet of type {:?}. Ignoring packet", packet.pack_type);
-            return;
+            log::error!(
+                "Cannot flood the network with a packet of type {:?}",
+                packet.pack_type
+            );
+            panic!(
+                "Cannot flood the network with a packet of type {:?}",
+                packet.pack_type
+            );
         }
 
         for (node_id, channel) in &self.neighbors {
@@ -41,12 +51,14 @@ impl Gateway {
 
     /// Sends a packet on the given channel. If channel.send fails, it sends an ErrorInRouting back to listener
     fn send_on_channel_checked(&self, channel: &Sender<Packet>, packet: Packet, next_hop: NodeId) {
-        match channel.send(packet) {
+        match channel.send(packet.clone()) {
             Ok(()) => {
-                // TODO: send PacketSent
-            },
+                log::info!("Packet {packet} successfully sent to {next_hop}");
+            }
             Err(SendError(packet)) => {
-                self.send_nack_packet_to_listener(packet, NackType::ErrorInRouting(next_hop));
+                let nack_type = NackType::ErrorInRouting(next_hop);
+                log::warn!("Error while sending packet {packet} to node {next_hop}: sending nack packet {nack_type:?}");
+                self.send_nack_packet_to_listener(packet, nack_type);
             }
         }
     }
@@ -56,7 +68,7 @@ impl Gateway {
         let forward_to = match flood_response.path_trace.iter().nth(1) {
             Some((node_id, _node_type)) => *node_id,
             None => {
-                // TODO: what to do?
+                log::error!("Tried to send a FloodResponse with no next hop");
                 panic!("Tried to send a FloodResponse with no next hop");
             }
         };
@@ -69,26 +81,23 @@ impl Gateway {
             pack_type: PacketType::FloodResponse(flood_response),
         };
         let channel = match self.neighbors.get(&forward_to) {
-            Some(channel) => {
-                channel
-            },
+            Some(channel) => channel,
             None => {
-                // TODO: update panic message
-                panic!("No channel found");
-            },
+                log::error!("No channel found to forward the flood response back to who sent it");
+                panic!("No channel found to forward the flood response back to who sent it");
+            }
         };
         self.send_on_channel_checked(channel, wrapper_packet, forward_to);
     }
 
-    // TODO: should this return a Result<(), ()> or can it just panic?
     /// Forwards a Packet based on its SourceRoutingHeader.
     /// It expects to receive Packets with hop_index set to 0
     pub fn forward(&self, mut packet: Packet) {
         let next_hop = match packet.routing_header.next_hop() {
-            Some(next_hop) => { next_hop },
+            Some(next_hop) => next_hop,
             None => {
-                // TODO: maybe panic is too much, maybe sending a nack to listener is enough? Maybe UnexpectedRecipient?
-                panic!("No next hop")
+                log::error!("No next hop for packet {packet}");
+                panic!("No next hop for current packet");
             }
         };
 
@@ -107,10 +116,8 @@ impl Gateway {
     /// or sending a nack for a specific fragment index
     fn send_nack_packet_to_listener(&self, packet: Packet, nack_type: NackType) {
         let fragment_index = match &packet.pack_type {
-            PacketType::MsgFragment(fragment) => {
-                fragment.fragment_index
-            }
-            _ => 0
+            PacketType::MsgFragment(fragment) => fragment.fragment_index,
+            _ => 0,
         };
 
         let nack = Nack {
@@ -134,9 +141,12 @@ impl Gateway {
 
     /// Sends a Packet to Listener
     pub fn send_to_listener(&self, packet: Packet) {
-        match self.listener_channel.send(packet) {
-            Ok(()) => {},
+        match self.listener_channel.send(packet.clone()) {
+            Ok(()) => {
+                log::info!("Packet {packet} successfully sent to listener");
+            }
             Err(_err) => {
+                log::error!("Gateway cannot communicate with listener");
                 panic!("Gateway cannot communicate with listener");
             }
         }
@@ -144,39 +154,58 @@ impl Gateway {
 
     /// Adds a channel to the connected neighbors
     fn add_neighbor(&mut self, node_id: NodeId, channel: Sender<Packet>) {
-        self.neighbors.insert(node_id, channel);
+        match self.neighbors.insert(node_id, channel) {
+            None => log::info!("Added neighbor with NodeId {node_id}"),
+            Some(_) => log::info!("Updated neighbor's channel associated to NodeId {node_id}"),
+        }
     }
 
     /// Removes a channel from the connected neighbors
     fn remove_neighbor(&mut self, node_id: &NodeId) {
-        self.neighbors.remove(node_id);
+        match self.neighbors.remove(node_id) {
+            Some(_) => log::info!("Remove neighbor's channel associated to NodeId {node_id}"),
+            None => log::warn!("Cannot remove neighbor's channel associated to NodeId {node_id}: there is no channel to remove"),
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::collections::HashMap;
     use crossbeam_channel::unbounded;
     use ntest::timeout;
+    use std::collections::HashMap;
     use wg_2024::packet::{Ack, FloodRequest, NodeType, Packet};
 
     #[test]
     fn initialize() {
+        let node_id = 10;
         let (tx, _rx) = unbounded::<Packet>();
-        let gateway = Gateway::new(10, HashMap::new(), tx);
+        let gateway = Gateway::new(node_id, HashMap::new(), tx);
 
-        assert_eq!(gateway.node_id, 10);
-        assert_eq!(gateway.neighbors.len(), 0);
+        assert_eq!(gateway.node_id, node_id);
+        assert!(gateway.neighbors.is_empty());
+
+        let (tx, _rx) = unbounded::<Packet>();
+        let expected = Gateway {
+            node_id,
+            neighbors: HashMap::new(),
+            listener_channel: tx,
+        };
+
+        assert_eq!(gateway, expected);
     }
 
     #[test]
-    fn check_send_message_failure_error_in_routing() {
+    fn check_forward_failure_error_in_routing() {
         let (tx, rx) = unbounded::<Packet>();
         let gateway = Gateway::new(10, HashMap::new(), tx);
         let packet = Packet {
-            pack_type: PacketType::Ack(Ack{ fragment_index: 0 }),
-            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![10, 1, 2] },
+            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![10, 1, 2],
+            },
             session_id: 0,
         };
         gateway.forward(packet);
@@ -197,7 +226,7 @@ mod test {
     }
 
     #[test]
-    fn check_send_message_successful() {
+    fn check_forward_successful() {
         let (tx, _rx) = unbounded::<Packet>();
 
         let (tx_drone, rx_drone) = unbounded::<Packet>();
@@ -207,8 +236,11 @@ mod test {
         let gateway = Gateway::new(10, neighbors, tx);
 
         let packet = Packet {
-            pack_type: PacketType::Ack(Ack{ fragment_index: 0 }),
-            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![10, 1, 2] },
+            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![10, 1, 2],
+            },
             session_id: 0,
         };
 
@@ -217,11 +249,37 @@ mod test {
         let received = rx_drone.recv().unwrap();
 
         let expected = Packet {
-            pack_type: PacketType::Ack(Ack{ fragment_index: 0 }),
-            routing_header: SourceRoutingHeader { hop_index: 1, hops: vec![10, 1, 2] },
+            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
+            routing_header: SourceRoutingHeader {
+                hop_index: 1,
+                hops: vec![10, 1, 2],
+            },
             session_id: 0,
         };
         assert_eq!(received, expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "No next hop for current packet")]
+    fn check_forward_no_next_hop() {
+        let (tx, _rx) = unbounded::<Packet>();
+
+        let (tx_drone, rx_drone) = unbounded::<Packet>();
+        let mut neighbors = HashMap::new();
+        neighbors.insert(1, tx_drone);
+
+        let gateway = Gateway::new(10, neighbors, tx);
+
+        let packet = Packet {
+            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![],
+            },
+            session_id: 0,
+        };
+
+        gateway.forward(packet);
     }
 
     #[test]
@@ -235,14 +293,18 @@ mod test {
         let gateway = Gateway::new(10, neighbors.clone(), tx);
 
         let packet = Packet {
-            pack_type: PacketType::Ack(Ack{ fragment_index: 0 }),
-            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![10, 1, 2] },
+            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![10, 1, 2],
+            },
             session_id: 0,
         };
 
         gateway.send_on_channel_checked(
-            neighbors.get(&1).unwrap(), packet.clone(),
-            packet.routing_header.next_hop().unwrap()
+            neighbors.get(&1).unwrap(),
+            packet.clone(),
+            packet.routing_header.next_hop().unwrap(),
         );
 
         let received = rx_drone.recv().unwrap();
@@ -262,15 +324,19 @@ mod test {
         let gateway = Gateway::new(10, neighbors.clone(), listener_tx);
 
         let packet = Packet {
-            pack_type: PacketType::Ack(Ack{ fragment_index: 0 }),
-            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![10, 1, 2] },
+            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![10, 1, 2],
+            },
             session_id: 0,
         };
 
         drop(rx_drone);
         gateway.send_on_channel_checked(
-            neighbors.get(&1).unwrap(), packet.clone(),
-            packet.routing_header.next_hop().unwrap()
+            neighbors.get(&1).unwrap(),
+            packet.clone(),
+            packet.routing_header.next_hop().unwrap(),
         );
 
         let received_from_listener = listener_rx.recv().unwrap();
@@ -281,12 +347,10 @@ mod test {
                 hops: vec![10],
             },
             session_id: 0,
-            pack_type: PacketType::Nack(
-                Nack {
-                    fragment_index: 0,
-                    nack_type: NackType::ErrorInRouting(1),
-                }
-            ),
+            pack_type: PacketType::Nack(Nack {
+                fragment_index: 0,
+                nack_type: NackType::ErrorInRouting(1),
+            }),
         };
 
         assert_eq!(received_from_listener, expected);
@@ -320,7 +384,10 @@ mod test {
         };
         let packet = Packet {
             pack_type: PacketType::FloodRequest(flood_request),
-            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![],
+            },
             session_id: 0,
         };
 
@@ -347,10 +414,7 @@ mod test {
         let session_id = 0;
         let flood_response = FloodResponse {
             flood_id: 0,
-            path_trace: vec![
-                (gateway_node_id, NodeType::Server),
-                (1, NodeType::Drone),
-            ],
+            path_trace: vec![(gateway_node_id, NodeType::Server), (1, NodeType::Drone)],
         };
 
         gateway.send_flood_response(flood_response.clone(), session_id);
@@ -384,9 +448,7 @@ mod test {
         let session_id = 0;
         let flood_response = FloodResponse {
             flood_id: 0,
-            path_trace: vec![
-                (gateway_node_id, NodeType::Server),
-            ],
+            path_trace: vec![(gateway_node_id, NodeType::Server)],
         };
 
         gateway.send_flood_response(flood_response, session_id);
@@ -408,72 +470,11 @@ mod test {
         let session_id = 0;
         let flood_response = FloodResponse {
             flood_id: 0,
-            path_trace: vec![
-                (gateway_node_id, NodeType::Server),
-                (100, NodeType::Drone)
-            ],
+            path_trace: vec![(gateway_node_id, NodeType::Server), (100, NodeType::Drone)],
         };
 
         gateway.send_flood_response(flood_response, session_id);
     }
-
-    /*
-    #[test]
-    fn check_send_message_forward_to_receiver() {
-        let (tx, rx) = unbounded::<Packet>();
-        let gateway = Gateway::new(10, HashMap::new(), tx);
-        let packet = Packet {
-            pack_type: PacketType::Ack(Ack{ fragment_index: 0 }),
-            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![10] },
-            session_id: 0,
-        };
-
-        gateway.forward(packet.clone());
-
-        // assert_eq!(result, Ok(()));
-    }
-     */
-
-    /*
-    #[test]
-    fn check_send_error_packet_to_receiver() {
-        let (tx, rx) = unbounded::<Packet>();
-        let gateway = Gateway::new(10, HashMap::new(), tx);
-
-        let packet = Packet {
-            pack_type: PacketType::Nack(Nack{ fragment_index: 0, nack_type: NackType::Dropped }),
-            routing_header: SourceRoutingHeader { hop_index: 3, hops: vec![1, 2, 3, 10] },
-            session_id: 0,
-        };
-
-        gateway.forward(packet);
-
-
-        /*
-        let result = gateway.send_nack_packet_to_receiver(&packet, NackType::Dropped);
-        match result {
-            Ok(()) => assert!(true),
-            Err(_error) => assert!(false),
-        }
-
-        let received_nack = rx.recv();
-        match &received_nack {
-            Ok(_nack) => assert!(true),
-            Err(_error) => assert!(false),
-        }
-        let received_nack_packet = received_nack.unwrap();
-        match received_nack_packet.pack_type {
-            PacketType::Nack(nack) => {
-                assert_eq!(nack.nack_type, NackType::Dropped);
-            }
-            _ => {
-                assert!(false)
-            },
-        }
-
-         */
-    }
-     */
 
     #[test]
     fn check_add_neighbor() {
