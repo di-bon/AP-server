@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use crossbeam_channel::{select, unbounded, Receiver, Sender};
 use messages::Message;
+use messages::node_event::NodeEvent;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodResponse, Nack, NackType, NodeType, Packet, PacketType};
 use crate::transmitter::network_controller::NetworkController;
@@ -38,6 +39,7 @@ pub struct Transmitter {
     transmission_handler_event_rx: Receiver<TransmissionHandlerEvent>,
     transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
     gateway: Arc<Gateway>,
+    simulation_controller_tx: Sender<NodeEvent>,
 }
 
 impl Transmitter {
@@ -48,7 +50,7 @@ impl Transmitter {
         listener_tx: Sender<Packet>,
         server_logic_rx: Receiver<(NodeId, Message)>,
         connected_drones: HashMap<NodeId, Sender<Packet>>,
-        // TODO: add simulation_controller_tx
+        simulation_controller_tx: Sender<NodeEvent>,
     ) -> Self {
         let gateway = Gateway::new(node_id, connected_drones, listener_tx);
         let gateway = Arc::new(gateway);
@@ -64,6 +66,7 @@ impl Transmitter {
             transmission_handler_event_tx,
             transmission_handler_event_rx,
             gateway,
+            simulation_controller_tx,
         }
     }
 
@@ -101,6 +104,7 @@ impl Transmitter {
         }
     }
 
+    // TODO: test
     fn process_high_level_message(&mut self, message: Message, destination_id: NodeId) {
         let (command_tx, command_rx) = unbounded::<Command>();
 
@@ -117,6 +121,7 @@ impl Transmitter {
         self.transmission_handlers.insert(session_id, command_tx);
     }
 
+    // TODO: test
     /// Processes a Packet that needs to be transmitted
     fn process_listener_packet(&mut self, packet: Packet) {
         match packet.pack_type {
@@ -270,6 +275,21 @@ mod tests {
     use crate::transmitter::Transmitter;
 
     #[test]
+    fn initialize() {
+        todo!()
+    }
+
+    #[test]
+    fn check_process_high_level_message() {
+        todo!()
+    }
+
+    #[test]
+    fn check_process_listener_packet() {
+        todo!()
+    }
+
+    #[test]
     fn check_flood_response_processing() {
         let node_id = 0;
         let node_type = NodeType::Server;
@@ -292,6 +312,7 @@ mod tests {
             internal_transmitter_to_listener_tx,
             internal_server_logic_to_transmitter_rx,
             connected_drones,
+            simulation_controller_tx,
         );
 
         thread::spawn(move || {

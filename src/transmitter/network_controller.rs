@@ -1,6 +1,7 @@
 mod network_graph;
 
 use std::sync::{Arc, RwLock};
+use messages::node_event::{EventNetworkGraph, EventNetworkNode, NodeEvent};
 use rand::Rng;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodRequest, FloodResponse, NackType, NodeType, Packet, PacketType};
@@ -77,6 +78,10 @@ impl NetworkController {
                         // Something went wrong, reset the network graph and flood the network again
                         self.network_graph.write().unwrap().reset_graph();
                         // TODO: send KnownNetworkGraph
+                        let event_network_graph = self.get_event_graph();
+                        let event = NodeEvent::KnownNetworkGraph(event_network_graph);
+
+
                         self.flood_network();
                     }
                     NackType::Dropped => {
@@ -96,11 +101,11 @@ impl NetworkController {
         }
     }
 
-    /*
     fn get_event_graph(&self) -> EventNetworkGraph {
         let mut nodes = vec![];
 
-        for network_node in self.network_graph.nodes.read().unwrap().iter() {
+        let network_graph = self.network_graph.read().unwrap();
+        for network_node in network_graph.nodes.read().unwrap().iter() {
             let network_node = network_node.read().unwrap();
             let neighbors = {
                 let mut neighbors: Vec<NodeId> = vec![];
@@ -124,7 +129,6 @@ impl NetworkController {
             nodes
         }
     }
-     */
 }
 
 #[cfg(test)]

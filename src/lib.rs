@@ -16,6 +16,7 @@ use crate::transmitter::Transmitter;
 mod transmitter;
 mod listener;
 mod server_logic;
+mod simulation_controller_communicator;
 
 pub struct NullPointerDibServer {
     transmitter: Arc<Mutex<Transmitter>>,
@@ -45,7 +46,8 @@ impl NullPointerDibServer {
             internal_listener_to_transmitter_rx,
             internal_transmitter_to_listener_tx,
             internal_server_logic_to_transmitter_rx,
-            drones_tx
+            drones_tx,
+            simulation_controller_tx.clone(),
         );
         let transmitter = Arc::new(Mutex::new(transmitter));
 
