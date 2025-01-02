@@ -37,7 +37,8 @@ impl NetworkNode {
     }
 
     pub fn insert_edge(&self, to: NodeId) {
-        self.neighbors.write().unwrap().push(to)
+        self.neighbors.write().unwrap().push(to);
+        log::info!("Inserted edge from {} to {to}", self.node_id);
     }
 
     pub fn remove_edge(&self, to: NodeId) {
@@ -49,15 +50,20 @@ impl NetworkNode {
             .position(|node_id| *node_id == to);
         if let Some(index) = index {
             self.neighbors.write().unwrap().remove(index);
+            log::info!("Removed edge from {} to {to}", self.node_id);
+        } else {
+            log::warn!("No edge to be removed from {} to {to}", self.node_id);
         }
     }
 
     pub fn increment_dropped_packets(&mut self) {
-        self.num_of_dropped_packets += 1
+        self.num_of_dropped_packets += 1;
+        log::info!("num_of_dropped_packets incremented");
     }
 
     pub fn reset_num_of_dropped_packets(&mut self) {
         self.num_of_dropped_packets = 0;
+        log::info!("num_of_dropped_packets reset to 0");
     }
 
     pub fn get_num_of_dropped_packets(&self) -> u64 {
