@@ -72,21 +72,8 @@ impl TransmissionHandler {
     // Basic version: send all the fragments all at once, then wait for commands, exit when receiving an ACK for each fragment
     // Refined version: use a sliding window (using AIMD? (i.e. Additive Increase Multiplicative Decrease)) to send the fragments
     pub fn run(&mut self) {
-        let mut hops;
-        loop {
-            hops = self.network_controller.get_path(self.destination_node_id);
-            if hops.is_some() {
-                break;
-            } else {
-                thread::sleep(Duration::from_millis(2000));
-            }
-        }
-
-        let source_routing_header = SourceRoutingHeader {
-            hop_index: 0,
-            hops: hops.unwrap(),
-        };
-        self.source_routing_header = source_routing_header;
+        let source_routing_header = self.find_new_routing_header();
+        self.update_source_routing_header(source_routing_header);
 
         let event = NodeEvent::StartingMessageTransmission(self.message.clone());
         self.simulation_controller_notifier.send_event(event);
@@ -126,7 +113,11 @@ impl TransmissionHandler {
                                     self.simulation_controller_notifier.send_event(event);
                                     break;
                                 }
-                            }
+                            },
+                            TransmissionHandlerCommand::UpdateHeader => {
+                                let source_routing_header = self.find_new_routing_header();
+                                self.update_source_routing_header(source_routing_header);
+                            },
                             /*
                             Command::UpdateSourceRoutingHeader(source_routing_header) => {
                                 self.update_source_routing_header(source_routing_header);
@@ -161,6 +152,23 @@ impl TransmissionHandler {
             session_id: self.session_id,
             pack_type: PacketType::MsgFragment(fragment),
         }
+    }
+
+    fn find_new_routing_header(&self) -> SourceRoutingHeader {
+        let mut hops;
+        loop {
+            hops = self.network_controller.get_path(self.destination_node_id);
+            if hops.is_some() {
+                break;
+            } else {
+                thread::sleep(Duration::from_millis(2000));
+            }
+        }
+        let source_routing_header = SourceRoutingHeader {
+            hop_index: 0,
+            hops: hops.unwrap(),
+        };
+        source_routing_header
     }
 
     fn update_source_routing_header(&mut self, source_routing_header: SourceRoutingHeader) {

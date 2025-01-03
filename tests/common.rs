@@ -1,0 +1,43 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use crossbeam_channel::{unbounded, Receiver, Sender};
+use messages::Message;
+use messages::node_event::NodeEvent;
+use wg_2024::network::NodeId;
+use wg_2024::packet::{NodeType, Packet};
+use ap_server::test_utils::{SimulationControllerNotifier, Transmitter, TransmitterCommand};
+
+pub fn create_transmitter(
+    node_id: NodeId,
+    node_type: NodeType,
+    connected_drones: HashMap<NodeId, Sender<Packet>>,
+    simulation_controller_notifier: Arc<SimulationControllerNotifier>,
+) -> (Transmitter, Sender<Packet>, Receiver<Packet>, Sender<(NodeId, Message)>, Sender<TransmitterCommand>) {
+
+    let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded::<Packet>();
+    let (transmitter_to_listener_tx, transmitter_to_listener_rx) = unbounded::<Packet>();
+    let (logic_to_transmitter_tx, logic_to_transmitter_rx) = unbounded();
+    let (transmitter_command_tx, transmitter_command_rx) = unbounded();
+
+    let transmitter = Transmitter::new(
+        node_id,
+        node_type,
+        listener_to_transmitter_rx,
+        transmitter_to_listener_tx,
+        logic_to_transmitter_rx,
+        connected_drones,
+        simulation_controller_notifier,
+        transmitter_command_rx,
+    );
+
+    (transmitter, listener_to_transmitter_tx, transmitter_to_listener_rx, logic_to_transmitter_tx, transmitter_command_tx)
+}
+
+pub fn create_simulation_controller_notifier() -> (Arc<SimulationControllerNotifier>, Receiver<NodeEvent>) {
+    let (simulation_controller_tx, simulation_controller_rx) = unbounded();
+
+    let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+    let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
+    (simulation_controller_notifier, simulation_controller_rx)
+}

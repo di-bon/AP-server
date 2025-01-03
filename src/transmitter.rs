@@ -16,10 +16,11 @@ mod gateway;
 mod transmission_handler;
 
 #[derive(Debug)]
-pub(crate) enum TransmissionHandlerCommand {
+pub enum TransmissionHandlerCommand {
     Resend(u64),
     Confirmed(u64),
-    Quit
+    Quit,
+    UpdateHeader,
 }
 
 #[derive(Debug, Clone)]
@@ -99,7 +100,6 @@ impl Transmitter {
                     if let Ok(packet) = packet {
                         self.process_listener_packet(packet);
                     } else {
-                        // TODO: panic?
                         panic!("Error while receiving from listener_channel");
                     }
                 },
@@ -155,6 +155,25 @@ impl Transmitter {
         self.transmission_handlers.insert(session_id, command_tx);
     }
 
+    fn send_transmission_handler_command(&self, session_id: u64, command: TransmissionHandlerCommand) {
+        let handler_channel = match self.transmission_handlers.get(&session_id) {
+            Some(channel) => {
+                channel
+            },
+            None => {
+                // TODO: what to do here? continue?
+                panic!("no handler found for the required session_id");
+            },
+        };
+        match handler_channel.send(command) {
+            Ok(()) => {},
+            Err(err) => {
+                // TODO: ignore this?
+                panic!("Cannot communicate with handler");
+            }
+        }
+    }
+
     /// Processes a Packet received from listener
     fn process_listener_packet(&mut self, packet: Packet) {
         match packet.pack_type {
@@ -177,6 +196,7 @@ impl Transmitter {
                         let nack_path = match self.network_controller.get_path(source) {
                             Some(path) => path,
                             None => {
+                                // TODO: change this - just get the reverse hops of received ACK
                                 self.gateway.send_to_listener(packet.clone());
                                 return;
                             }
@@ -204,8 +224,6 @@ impl Transmitter {
                 }
             },
             PacketType::Nack(ref nack) => {
-                // TODO: send a clone of avery nack to network controller
-
                 // if a nack is received, tell the transmission_handler to send
                 // the required fragment again
                 self.network_controller.update_from_nack(&packet);
@@ -213,22 +231,19 @@ impl Transmitter {
                     NackType::Dropped => {
                         let session_id = packet.session_id;
                         let fragment_index = nack.fragment_index;
-                        let handler_channel = match self.transmission_handlers.get(&session_id) {
-                            Some(channel) => {
-                                channel
-                            },
-                            None => {
-                                // TODO: what to do here? continue?
-                                panic!("no handler found for the required session_id");
-                            },
-                        };
-                        match handler_channel.send(TransmissionHandlerCommand::Resend(fragment_index)) {
-                            Ok(()) => {},
-                            Err(err) => {
-                                // TODO: ignore this?
-                                panic!("Cannot communicate with handler");
-                            }
-                        }
+
+                        let command = TransmissionHandlerCommand::Resend(fragment_index);
+                        self.send_transmission_handler_command(session_id, command);
+                    },
+                    NackType::ErrorInRouting(_) => {
+                        let session_id = packet.session_id;
+                        let fragment_index = nack.fragment_index;
+
+                        let command = TransmissionHandlerCommand::UpdateHeader;
+                        self.send_transmission_handler_command(session_id, command);
+
+                        let command = TransmissionHandlerCommand::Resend(fragment_index);
+                        self.send_transmission_handler_command(session_id, command);
                     }
                     _ => {
                         // TODO: what to do with other nacks?
