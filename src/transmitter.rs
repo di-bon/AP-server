@@ -16,7 +16,7 @@ mod gateway;
 mod transmission_handler;
 
 #[derive(Debug)]
-pub(crate) enum Command {
+pub(crate) enum TransmissionHandlerCommand {
     Resend(u64),
     Confirmed(u64),
     Quit
@@ -42,7 +42,7 @@ pub struct Transmitter {
     server_logic_rx: Receiver<(NodeId, Message)>, // HL message!
     network_controller: Arc<NetworkController>,
     // transmitter -> transmission handlers
-    transmission_handlers: HashMap<u64, Sender<Command>>,
+    transmission_handlers: HashMap<u64, Sender<TransmissionHandlerCommand>>,
     transmission_handler_event_rx: Receiver<TransmissionHandlerEvent>,
     transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
     gateway: Arc<Gateway>,
@@ -135,7 +135,7 @@ impl Transmitter {
 
     /// Processes a message received from server logic
     fn process_high_level_message(&mut self, message: Message, destination_id: NodeId) {
-        let (command_tx, command_rx) = unbounded::<Command>();
+        let (command_tx, command_rx) = unbounded::<TransmissionHandlerCommand>();
 
         let session_id = message.session_id; // TODO: or should be a random number?
         let mut transmission_handler = TransmissionHandler::new(
@@ -196,7 +196,7 @@ impl Transmitter {
                         return;
                     }
                 };
-                match channel.send(Command::Confirmed(ack.fragment_index)) {
+                match channel.send(TransmissionHandlerCommand::Confirmed(ack.fragment_index)) {
                     Ok(()) => {},
                     Err(err) => {
                         panic!("Transmitter cannot communicate to transmission handler associated with session_id {session_id}");
@@ -222,7 +222,7 @@ impl Transmitter {
                                 panic!("no handler found for the required session_id");
                             },
                         };
-                        match handler_channel.send(Command::Resend(fragment_index)) {
+                        match handler_channel.send(TransmissionHandlerCommand::Resend(fragment_index)) {
                             Ok(()) => {},
                             Err(err) => {
                                 // TODO: ignore this?

@@ -10,7 +10,7 @@ use messages::node_event::NodeEvent;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Fragment, Packet, PacketType};
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
-use crate::transmitter::{Command, TransmissionHandlerEvent};
+use crate::transmitter::{TransmissionHandlerCommand, TransmissionHandlerEvent};
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::network_controller::NetworkController;
 // TODO: maybe also handle ACKs?
@@ -30,7 +30,7 @@ pub(super) struct TransmissionHandler {
     gateway: Arc<Gateway>,
     network_controller: Arc<NetworkController>,
     destination_node_id: NodeId,
-    command_rx: Receiver<Command>,
+    command_rx: Receiver<TransmissionHandlerCommand>,
     received_acks: HashSet<u64>,
     transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
     simulation_controller_notifier: Arc<SimulationControllerNotifier>,
@@ -42,12 +42,11 @@ impl TransmissionHandler {
         gateway: Arc<Gateway>,
         network_controller: Arc<NetworkController>,
         destination_node_id: NodeId,
-        command_rx: Receiver<Command>,
+        command_rx: Receiver<TransmissionHandlerCommand>,
         transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
         simulation_controller_notifier: Arc<SimulationControllerNotifier>,
     ) -> Self {
-        let to_be_fragmented = message.content.clone();
-        let fragments = NaiveAssembler::disassemble(&to_be_fragmented.stringify().into_bytes());
+        let fragments = NaiveAssembler::disassemble(&message.stringify().into_bytes());
         let source_id = message.source_id;
         let session_id = message.session_id;
         Self {
@@ -104,7 +103,7 @@ impl TransmissionHandler {
                 recv(self.command_rx) -> command => {
                     if let Ok(command) = command {
                         match command {
-                            Command::Resend(fragment_index) => {
+                            TransmissionHandlerCommand::Resend(fragment_index) => {
                                 let fragment = self.fragments.get(fragment_index as usize);
                                 match fragment {
                                     Some(fragment) => {
@@ -115,12 +114,12 @@ impl TransmissionHandler {
                                         log::warn!(
                                             "TransmissionHandler for session {} received a command {:?} with fragment index {fragment_index} out of bounds",
                                             self.session_id,
-                                            Command::Resend(fragment_index)
+                                            TransmissionHandlerCommand::Resend(fragment_index)
                                         );
                                     }
                                 }
                             }
-                            Command::Confirmed(fragment_index) => {
+                            TransmissionHandlerCommand::Confirmed(fragment_index) => {
                                 self.received_acks.insert(fragment_index);
                                 if self.received_acks.len() == self.fragments.len() {
                                     let event = NodeEvent::MessageSentSuccessfully(self.message.clone());
@@ -136,7 +135,7 @@ impl TransmissionHandler {
                                 // new header
                             }
                              */
-                            Command::Quit => {
+                            TransmissionHandlerCommand::Quit => {
                                 break;
                             }
                         }
@@ -172,10 +171,50 @@ impl TransmissionHandler {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::thread::JoinHandle;
     use crossbeam_channel::unbounded;
     use super::*;
     use messages::{ChatResponse, Message, MessageType, ResponseType};
-    use wg_2024::packet::{NodeType, Packet, PacketType};
+    use messages::TextResponse::Text;
+    use ntest::timeout;
+    use wg_2024::packet::{FloodResponse, NodeType, Packet, PacketType};
+
+    fn create_transmission_handler(message: &Message, node_id: NodeId, node_type: NodeType, destination_node_id: NodeId, paths: Vec<FloodResponse>) -> (TransmissionHandler, Receiver<Packet>, Receiver<NodeEvent>, Sender<TransmissionHandlerCommand>) {
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
+        let mut connected_drones = HashMap::new();
+
+        let (drone_tx, drone_rx) = unbounded::<Packet>();
+        connected_drones.insert(1, drone_tx);
+
+        let (transmitter_to_listener_tx, transmitter_to_listener_rx) = unbounded::<Packet>();
+        let gateway = Gateway::new(0, connected_drones, transmitter_to_listener_tx, simulation_controller_notifier.clone());
+        let gateway = Arc::new(gateway);
+
+        let (command_tx, command_rx) = unbounded::<TransmissionHandlerCommand>();
+        let network_controller = NetworkController::new(node_id, node_type, gateway.clone(), simulation_controller_notifier.clone());
+        let network_controller = Arc::new(network_controller);
+        let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
+
+        for path in paths {
+            network_controller.update_from_flood_response(path);
+            let _ = simulation_controller_rx.recv().unwrap();
+        }
+
+        let transmission_handler = TransmissionHandler::new(
+            message.clone(),
+            gateway,
+            network_controller,
+            destination_node_id,
+            command_rx,
+            transmission_handler_event_tx,
+            simulation_controller_notifier.clone(),
+        );
+
+        (transmission_handler, drone_rx, simulation_controller_rx, command_tx)
+    }
 
     #[test]
     fn initialize() {
@@ -185,32 +224,8 @@ mod tests {
             content: MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent)),
         };
 
-        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
-        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
-        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
-
-        let (listener_tx, _listener_rx) = unbounded::<Packet>();
-        let gateway = Gateway::new(0, HashMap::new(), listener_tx, simulation_controller_notifier.clone());
-        let gateway = Arc::new(gateway);
-        let (_command_tx, command_rx) = unbounded::<Command>();
-        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone(), simulation_controller_notifier.clone());
-        let network_controller = Arc::new(network_controller);
-        let destination_node_id: NodeId = 1;
-        let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
-
-        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
-        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
-        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
-
-        let transmission_handler = TransmissionHandler::new(
-            message.clone(),
-            gateway,
-            network_controller,
-            destination_node_id,
-            command_rx,
-            transmission_handler_event_tx,
-            simulation_controller_notifier,
-        );
+        let paths = vec![];
+        let (transmission_handler, drone_rx, simulation_controller_rx, command_tx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths);
 
         assert_eq!(message.source_id, transmission_handler.source_id);
         assert_eq!(message.session_id, transmission_handler.session_id);
@@ -218,39 +233,15 @@ mod tests {
     }
 
     #[test]
-    fn prepare_packets() {
+    fn check_create_packets() {
         let message = Message {
             source_id: 1,
             session_id: 51,
             content: MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent)),
         };
 
-        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
-        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
-        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
-
-        let (listener_tx, listener_rx) = unbounded::<Packet>();
-        let gateway = Gateway::new(0, HashMap::new(), listener_tx, simulation_controller_notifier.clone());
-        let gateway = Arc::new(gateway);
-        let (command_tx, command_rx) = unbounded::<Command>();
-        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone(), simulation_controller_notifier.clone());
-        let network_controller = Arc::new(network_controller);
-        let destination_node_id: NodeId = 1;
-        let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
-
-        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
-        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
-        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
-
-        let transmission_handler = TransmissionHandler::new(
-            message.clone(),
-            gateway,
-            network_controller,
-            destination_node_id,
-            command_rx,
-            transmission_handler_event_tx,
-            simulation_controller_notifier
-        );
+        let paths = vec![];
+        let (transmission_handler, drone_rx, simulation_controller_rx, command_tx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths);
 
         let expected_packet = Packet {
             routing_header: Default::default(),
@@ -272,32 +263,8 @@ mod tests {
             hops: vec![],
         };
 
-        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
-        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
-        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
-
-        let (listener_tx, listener_rx) = unbounded::<Packet>();
-        let gateway = Gateway::new(0, HashMap::new(), listener_tx, simulation_controller_notifier.clone());
-        let gateway = Arc::new(gateway);
-        let (command_tx, command_rx) = unbounded::<Command>();
-        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone(), simulation_controller_notifier.clone());
-        let network_controller = Arc::new(network_controller);
-        let destination_node_id: NodeId = 1;
-        let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
-
-        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
-        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
-        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
-
-        let mut transmission_handler = TransmissionHandler::new(
-            message.clone(),
-            gateway,
-            network_controller,
-            destination_node_id,
-            command_rx,
-            transmission_handler_event_tx,
-            simulation_controller_notifier,
-        );
+        let paths = vec![];
+        let (mut transmission_handler, drone_rx, simulation_controller_rx, command_tx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths);
 
         let expected_source_routing_header = SourceRoutingHeader {
             hop_index: 0,
@@ -312,5 +279,106 @@ mod tests {
         transmission_handler.update_source_routing_header(new_source_routing_header.clone());
 
         assert_eq!(transmission_handler.source_routing_header, new_source_routing_header);
+    }
+
+    #[test]
+    #[timeout(2000)]
+    fn send_packets() {
+        let session_id = 0;
+
+        let message = Message {
+            source_id: 0,
+            session_id,
+            content: MessageType::Response(ResponseType::TextResponse(Text("My super long text response .....................".to_string()))),
+        };
+
+        let paths = vec![
+            FloodResponse {
+                flood_id: 0,
+                path_trace: vec![
+                    (0, NodeType::Server),
+                    (1, NodeType::Drone),
+                ],
+            }
+        ];
+        let (mut transmission_handler, drone_rx, simulation_controller_rx, command_tx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths);
+
+        thread::spawn(move || {
+            transmission_handler.run();
+        });
+
+        let _ = command_tx.send(TransmissionHandlerCommand::Resend(0)).unwrap();
+
+        let fragments = NaiveAssembler::disassemble(&message.stringify().into_bytes());
+        let expected_packets: Vec<Packet> = fragments.iter().map(|fragment: &Fragment|
+            Packet {
+                routing_header: SourceRoutingHeader { hop_index: 1, hops: vec![0, 1] },
+                session_id,
+                pack_type: PacketType::MsgFragment(fragment.clone()),
+            }
+        ).collect();
+
+        for expected_packet in &expected_packets {
+            let received = drone_rx.recv().unwrap();
+            assert_eq!(received, *expected_packet);
+
+            if let PacketType::MsgFragment(fragment) = received.pack_type {
+                match command_tx.send(TransmissionHandlerCommand::Confirmed(fragment.fragment_index)) {
+                    Ok(()) => (),
+                    Err(err) => panic!("Cannot communicate with transmission handler"),
+                }
+            } else {
+                panic!("Got wrong message type")
+            }
+        }
+
+        let received = drone_rx.recv().unwrap();
+        assert_eq!(received, expected_packets[0]);
+
+        let event = simulation_controller_rx.recv().unwrap();
+        assert!(matches!(event, NodeEvent::StartingMessageTransmission(_)));
+
+        let event = simulation_controller_rx.recv().unwrap();
+        assert!(matches!(event, NodeEvent::PacketSent(_)));
+
+        let event = simulation_controller_rx.recv().unwrap();
+        assert!(matches!(event, NodeEvent::PacketSent(_)));
+
+        let event = simulation_controller_rx.recv().unwrap();
+        assert!(matches!(event, NodeEvent::PacketSent(_)));
+
+        let event = simulation_controller_rx.recv().unwrap();
+        assert!(matches!(event, NodeEvent::MessageSentSuccessfully(_)));
+    }
+
+    #[test]
+    #[timeout(2000)]
+    fn check_quit_command() -> std::thread::Result<()> {
+        let session_id = 0;
+
+        let message = Message {
+            source_id: 0,
+            session_id,
+            content: MessageType::Response(ResponseType::TextResponse(Text("My super long text response .....................".to_string()))),
+        };
+
+        let paths = vec![
+            FloodResponse {
+                flood_id: 0,
+                path_trace: vec![
+                    (0, NodeType::Server),
+                    (1, NodeType::Drone),
+                ],
+            }
+        ];
+        let (mut transmission_handler, drone_rx, simulation_controller_rx, command_tx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths);
+
+        let handle = thread::spawn(move || {
+            transmission_handler.run();
+        });
+
+        let _ = command_tx.send(TransmissionHandlerCommand::Quit).unwrap();
+
+        handle.join()
     }
 }

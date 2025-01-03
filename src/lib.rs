@@ -22,6 +22,9 @@ mod listener;
 mod server_logic;
 mod simulation_controller_notifier;
 
+// #[cfg(test)]
+// pub mod test_utils;
+
 pub struct NullPointerDibServer {
     transmitter: Arc<Mutex<Transmitter>>,
     listener: Arc<Mutex<Listener>>,
