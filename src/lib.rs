@@ -11,12 +11,13 @@ use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
 use crate::listener::{Listener, ListenerCommand};
 use crate::server_logic::ServerLogic;
+use crate::simulation_controller_notifier::SimulationControllerNotifier;
 use crate::transmitter::Transmitter;
 
 mod transmitter;
 mod listener;
 mod server_logic;
-mod simulation_controller_communicator;
+mod simulation_controller_notifier;
 
 pub struct NullPointerDibServer {
     transmitter: Arc<Mutex<Transmitter>>,
@@ -40,6 +41,9 @@ impl NullPointerDibServer {
         let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded::<(NodeId, Message)>();
         let (listener_commands_tx, listener_commands_rx) = unbounded::<ListenerCommand>();
 
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
         let transmitter = Transmitter::new(
             node_id,
             NodeType::Server,
@@ -47,7 +51,7 @@ impl NullPointerDibServer {
             internal_transmitter_to_listener_tx,
             internal_server_logic_to_transmitter_rx,
             drones_tx,
-            simulation_controller_tx.clone(),
+            simulation_controller_notifier.clone(),
         );
         let transmitter = Arc::new(Mutex::new(transmitter));
 
@@ -58,7 +62,7 @@ impl NullPointerDibServer {
             internal_listener_to_server_logic_tx,
             listener_rx,
             listener_commands_rx,
-            simulation_controller_tx,
+            simulation_controller_notifier.clone(),
         );
         let listener = Arc::new(Mutex::new(listener));
 

@@ -74,6 +74,40 @@ impl NetworkGraph {
         }
     }
 
+    // TODO: refactor this
+    fn remove_node_from_neighbors(&self, remove_connections_from: NodeId) {
+        let nodes_binding = self
+            .nodes
+            .read()
+            .unwrap();
+        let node_to_be_removed = match nodes_binding
+            .iter()
+            .find(|node| node.read().unwrap().node_id == remove_connections_from) {
+            Some(node) => node,
+            None => {
+                log::error!("Cannot find node with NodeId {remove_connections_from}");
+                panic!("Cannot find node with NodeId {remove_connections_from}");
+            }
+        };
+
+        for neighbor_id in node_to_be_removed.read().unwrap().neighbors.read().unwrap().iter() {
+            let neighbor = match nodes_binding
+                .iter()
+                .find(|node| node.read().unwrap().node_id == *neighbor_id) {
+                Some(node) => node,
+                None => {
+                    // continue?
+                    continue;
+                }
+            };
+            let index = match neighbor.read().unwrap().neighbors.write().unwrap().iter().position(|node_id| *node_id == remove_connections_from) {
+                Some(index) => index,
+                None => panic!("Node not found"),
+            };
+            neighbor.read().unwrap().neighbors.write().unwrap().remove(index);
+        }
+    }
+
     fn delete_node(&self, node_id: NodeId) {
         let index = self
             .nodes
@@ -82,6 +116,7 @@ impl NetworkGraph {
             .iter()
             .position(|x| x.read().unwrap().node_id == node_id);
         if let Some(index) = index {
+            self.remove_node_from_neighbors(node_id);
             self.nodes.write().unwrap().remove(index);
             log::info!("Deleted node with NodeId {node_id}");
         } else {
@@ -672,6 +707,42 @@ mod tests {
             owner_node_id: node_id,
             owner_node_type: node_type,
             nodes,
+        };
+
+        assert_eq!(graph, expected);
+    }
+
+    #[test]
+    fn check_delete_node() {
+        let node_id = 0;
+        let node_type = NodeType::Server;
+        let mut graph = NetworkGraph::new(node_id, node_type);
+
+        let flood_response = FloodResponse {
+            flood_id: 0,
+            path_trace: vec![
+                (node_id, node_type),
+                (1, NodeType::Drone),
+                (2, NodeType::Drone),
+                (3, NodeType::Drone),
+                (4, NodeType::Client),
+            ],
+        };
+
+        graph.insert_edges_from_path_trace(&flood_response.path_trace);
+        graph.delete_node(1);
+        graph.delete_node(3);
+        graph.delete_node(20);
+
+        let nodes = vec![
+            create_arc_rwlock_node(node_id, node_type),
+            create_arc_rwlock_node(2, NodeType::Drone),
+            create_arc_rwlock_node(4, NodeType::Client),
+        ];
+        let expected = NetworkGraph {
+            owner_node_id: node_id,
+            owner_node_type: node_type,
+            nodes: RwLock::new(nodes),
         };
 
         assert_eq!(graph, expected);

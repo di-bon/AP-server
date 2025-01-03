@@ -1,11 +1,18 @@
+use std::fmt::{Debug, Formatter};
 use crossbeam_channel::Sender;
 use messages::node_event::NodeEvent;
 
-pub struct SimulationControllerCommunicator {
+pub struct SimulationControllerNotifier {
     simulation_controller_tx: Sender<NodeEvent>,
 }
 
-impl SimulationControllerCommunicator {
+impl Debug for SimulationControllerNotifier {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SimulationControllerNotifier")
+    }
+}
+
+impl SimulationControllerNotifier {
     pub fn new(simulation_controller_tx: Sender<NodeEvent>) -> Self {
         Self {
             simulation_controller_tx,

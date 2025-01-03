@@ -88,7 +88,7 @@ impl NetworkController {
                         // Update num_of_dropped_packets
                         let faulty_node_id = match nack_packet.routing_header.source() {
                             Some(node) => node,
-                            None => panic!("Received a packet with no routing header")
+                            None => panic!("Received a packet with no hops in routing header")
                         };
                         self.network_graph.read().unwrap().increment_num_of_dropped_packets(faulty_node_id);
                         // TODO: send KnownNetworkGraph - overkill? -> create a new event 'UpdateNumOfDroppedPackets(NodeId, num_of_dropped_packets)'
@@ -110,8 +110,8 @@ impl NetworkController {
             let neighbors = {
                 let mut neighbors: Vec<NodeId> = vec![];
 
-                for neighbor in network_node.neighbors.read().unwrap() {
-                    neighbors.push(neighbor)
+                for neighbor in network_node.neighbors.read().unwrap().iter() {
+                    neighbors.push(*neighbor)
                 }
 
                 neighbors
@@ -136,7 +136,7 @@ mod tests {
     use std::collections::HashMap;
     use crossbeam_channel::{unbounded, Sender};
     use ntest::timeout;
-    use wg_2024::packet::Nack;
+    use wg_2024::packet::{Ack, Nack};
     use super::*;
 
     #[test]
@@ -331,5 +331,120 @@ mod tests {
         };
         assert_eq!(received_flood_request.initiator_id, expected_initiator_id);
         assert_eq!(received_flood_request.path_trace, expected_path_trace);
+    }
+
+    #[test]
+    fn reset_graph_from_flood() {
+        let node_id = 0;
+        let node_type = NodeType::Server;
+
+        let connected_drones = HashMap::new();
+        let (gateway_to_listener_tx, gateway_to_listener_rx) = unbounded::<Packet>();
+        let gateway = Gateway::new(node_id, connected_drones, gateway_to_listener_tx);
+        let gateway = Arc::new(gateway);
+
+        let network_controller = NetworkController::new(node_id, node_type, gateway);
+
+        let flood_response = FloodResponse {
+            flood_id: 0,
+            path_trace: vec![
+                (node_id, node_type),
+                (1, NodeType::Drone),
+                (2, NodeType::Drone),
+                (3, NodeType::Client),
+            ],
+        };
+
+        network_controller.update_from_flood_response(flood_response);
+
+        let nack = Nack {
+            fragment_index: 0,
+            nack_type: NackType::DestinationIsDrone,
+        };
+        let nack = Packet {
+            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+            session_id: 0,
+            pack_type: PacketType::Nack(nack),
+        };
+        network_controller.update_from_nack(&nack);
+
+        assert_eq!(network_controller.network_graph.read().unwrap().nodes.read().unwrap().len(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Received a NACK packet with no source in header")]
+    fn error_in_routing_with_no_header() {
+        let node_id = 0;
+        let node_type = NodeType::Server;
+
+        let connected_drones = HashMap::new();
+        let (gateway_to_listener_tx, gateway_to_listener_rx) = unbounded::<Packet>();
+        let gateway = Gateway::new(node_id, connected_drones, gateway_to_listener_tx);
+        let gateway = Arc::new(gateway);
+
+        let network_controller = NetworkController::new(node_id, node_type, gateway);
+
+        let nack = Nack {
+            fragment_index: 0,
+            nack_type: NackType::ErrorInRouting(10),
+        };
+        let nack = Packet {
+            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+            session_id: 0,
+            pack_type: PacketType::Nack(nack),
+        };
+
+        network_controller.update_from_nack(&nack);
+    }
+
+    #[test]
+    #[should_panic(expected = "Received a packet with no hops in routing header")]
+    fn dropped_with_no_header() {
+        let node_id = 0;
+        let node_type = NodeType::Server;
+
+        let connected_drones = HashMap::new();
+        let (gateway_to_listener_tx, gateway_to_listener_rx) = unbounded::<Packet>();
+        let gateway = Gateway::new(node_id, connected_drones, gateway_to_listener_tx);
+        let gateway = Arc::new(gateway);
+
+        let network_controller = NetworkController::new(node_id, node_type, gateway);
+
+        let nack = Nack {
+            fragment_index: 0,
+            nack_type: NackType::Dropped,
+        };
+        let nack = Packet {
+            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+            session_id: 0,
+            pack_type: PacketType::Nack(nack),
+        };
+
+        network_controller.update_from_nack(&nack);
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected nack packet!")]
+    fn update_from_nack_wrong_packet_type() {
+        let node_id = 0;
+        let node_type = NodeType::Server;
+
+        let connected_drones = HashMap::new();
+        let (gateway_to_listener_tx, gateway_to_listener_rx) = unbounded::<Packet>();
+        let gateway = Gateway::new(node_id, connected_drones, gateway_to_listener_tx);
+        let gateway = Arc::new(gateway);
+
+        let network_controller = NetworkController::new(node_id, node_type, gateway);
+
+        let ack = Ack {
+            fragment_index: 0,
+        };
+        let ack = Packet {
+            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+            session_id: 0,
+            pack_type: PacketType::Ack(ack),
+        };
+
+        network_controller.update_from_nack(&ack);
     }
 }

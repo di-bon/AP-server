@@ -5,6 +5,7 @@ use messages::Message;
 use messages::node_event::NodeEvent;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodResponse, Nack, NackType, NodeType, Packet, PacketType};
+use crate::simulation_controller_notifier::SimulationControllerNotifier;
 use crate::transmitter::network_controller::NetworkController;
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::transmission_handler::TransmissionHandler;
@@ -39,7 +40,7 @@ pub struct Transmitter {
     transmission_handler_event_rx: Receiver<TransmissionHandlerEvent>,
     transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
     gateway: Arc<Gateway>,
-    simulation_controller_tx: Sender<NodeEvent>,
+    simulation_controller_notifier: Arc<SimulationControllerNotifier>,
 }
 
 impl Transmitter {
@@ -50,7 +51,7 @@ impl Transmitter {
         listener_tx: Sender<Packet>,
         server_logic_rx: Receiver<(NodeId, Message)>,
         connected_drones: HashMap<NodeId, Sender<Packet>>,
-        simulation_controller_tx: Sender<NodeEvent>,
+        simulation_controller_notifier: Arc<SimulationControllerNotifier>,
     ) -> Self {
         let gateway = Gateway::new(node_id, connected_drones, listener_tx);
         let gateway = Arc::new(gateway);
@@ -66,7 +67,7 @@ impl Transmitter {
             transmission_handler_event_tx,
             transmission_handler_event_rx,
             gateway,
-            simulation_controller_tx,
+            simulation_controller_notifier,
         }
     }
 
@@ -266,25 +267,24 @@ impl Transmitter {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Arc;
     use std::thread;
     use crossbeam_channel::unbounded;
     use messages::Message;
     use messages::node_event::NodeEvent;
     use wg_2024::network::{NodeId, SourceRoutingHeader};
     use wg_2024::packet::{FloodResponse, NodeType, Packet, PacketType};
+    use crate::simulation_controller_notifier::SimulationControllerNotifier;
     use crate::transmitter::Transmitter;
 
-    #[test]
     fn initialize() {
         todo!()
     }
 
-    #[test]
     fn check_process_high_level_message() {
         todo!()
     }
 
-    #[test]
     fn check_process_listener_packet() {
         todo!()
     }
@@ -297,7 +297,11 @@ mod tests {
         let (internal_transmitter_to_listener_tx, internal_transmitter_to_listener_rx) = unbounded::<Packet>();
         let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded::<Packet>();
         let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded::<(NodeId, Message)>();
+
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
 
         let connected_drones = HashMap::new();
 
@@ -312,7 +316,7 @@ mod tests {
             internal_transmitter_to_listener_tx,
             internal_server_logic_to_transmitter_rx,
             connected_drones,
-            simulation_controller_tx,
+            simulation_controller_notifier,
         );
 
         thread::spawn(move || {

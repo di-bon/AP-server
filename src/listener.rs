@@ -6,11 +6,12 @@ use assembler::Assembler;
 use crossbeam_channel::{select, Receiver, SendError, Sender};
 use messages::node_event::NodeEvent;
 use std::collections::HashMap;
+use std::sync::Arc;
 use messages::{Message, MessageType};
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Nack, NackType, Packet, PacketType};
 use messages::MessageUtilities;
-
+use crate::simulation_controller_notifier::SimulationControllerNotifier;
 /*
    TODO:
    - write tests
@@ -32,7 +33,7 @@ pub struct Listener {
     // drone(s) -> listener
     drones_rx: Receiver<Packet>,
     command_rx: Receiver<ListenerCommand>,
-    simulation_controller_tx: Sender<NodeEvent>,
+    simulation_controller_notifier: Arc<SimulationControllerNotifier>,
     // HashMap containing all the pairs (session_id, Storer)
     storers: HashMap<u64, Storer>,
 }
@@ -51,7 +52,7 @@ impl Listener {
         server_logic_tx: Sender<Message>,
         drones_rx: Receiver<Packet>,
         command_rx: Receiver<ListenerCommand>,
-        simulation_controller_tx: Sender<NodeEvent>,
+        simulation_controller_notifier: Arc<SimulationControllerNotifier>,
     ) -> Self {
         Self {
             node_id,
@@ -60,7 +61,7 @@ impl Listener {
             server_logic_tx,
             drones_rx,
             command_rx,
-            simulation_controller_tx,
+            simulation_controller_notifier,
             storers: HashMap::default(),
         }
     }
@@ -272,7 +273,10 @@ mod tests {
             unbounded::<Message>();
         let (listener_commands_tx, listener_commands_rx) = unbounded::<ListenerCommand>();
         let (listener_public_tx, listener_public_rx) = unbounded::<Packet>();
+
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
         let listener = Listener::new(
             node_id,
@@ -281,7 +285,7 @@ mod tests {
             internal_listener_to_server_logic_tx,
             listener_public_rx,
             listener_commands_rx,
-            simulation_controller_tx,
+            simulation_controller_notifier,
         );
 
         (
@@ -312,6 +316,8 @@ mod tests {
         let (server_logic_tx, _server_logic_rx) = unbounded::<Message>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
         let expected = Listener {
             node_id: 1,
@@ -320,7 +326,7 @@ mod tests {
             drones_rx,
             transmitter_rx,
             command_rx,
-            simulation_controller_tx,
+            simulation_controller_notifier,
             storers: Default::default(),
         };
 
@@ -344,6 +350,8 @@ mod tests {
         let (server_logic_tx, _server_logic_rx) = unbounded::<Message>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
         let mut expected = Listener {
             node_id: 1,
@@ -352,7 +360,7 @@ mod tests {
             drones_rx,
             transmitter_rx,
             command_rx,
-            simulation_controller_tx,
+            simulation_controller_notifier,
             storers: Default::default(),
         };
 
