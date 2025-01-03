@@ -203,6 +203,25 @@ impl NetworkGraph {
         }
     }
 
+    pub fn get_num_of_dropped_packets(&self, node_id: NodeId) -> Option<u64> {
+        let borrow_mut = self.nodes.write().unwrap();
+        let faulty_node = borrow_mut
+            .iter()
+            .find(|node| node.read().unwrap().node_id == node_id);
+        match faulty_node {
+            Some(node) => {
+                Some(node.write().unwrap().get_num_of_dropped_packets())
+            }
+            None => {
+                // just ignore this case?
+                // It may arise when an old Nack::Dropped is received after resetting the
+                // graph and flooding it again
+                log::info!("No node with NodeId {node_id}");
+                None
+            }
+        }
+    }
+
     /// Returns an HashMap associating every node to its predecessor
     fn get_paths(&self) -> HashMap<NodeId, NodeId> {
         let mut come_from: HashMap<NodeId, NodeId> = HashMap::new();

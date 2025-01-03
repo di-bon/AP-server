@@ -72,7 +72,7 @@ impl Transmitter {
         simulation_controller_notifier: Arc<SimulationControllerNotifier>,
         transmitter_command_rx: Receiver<TransmitterCommand>,
     ) -> Self {
-        let gateway = Gateway::new(node_id, connected_drones, listener_tx);
+        let gateway = Gateway::new(node_id, connected_drones, listener_tx, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
@@ -81,7 +81,7 @@ impl Transmitter {
             node_id,
             listener_rx,
             server_logic_rx,
-            network_controller: Arc::new(NetworkController::new(node_id, node_type, gateway.clone())),
+            network_controller: Arc::new(NetworkController::new(node_id, node_type, gateway.clone(), simulation_controller_notifier.clone())),
             transmission_handlers: HashMap::new(),
             transmission_handler_event_tx,
             transmission_handler_event_rx,
@@ -366,7 +366,12 @@ mod tests {
         let (tx, rx) = unbounded::<Packet>();
         neighbors.insert(1, tx);
         let (tx, rx) = unbounded::<Packet>();
-        let gateway = Gateway::new(node_id, neighbors, tx);
+
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
+        let gateway = Gateway::new(node_id, neighbors, tx, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let (listener_tx, listener_rx) = unbounded::<Packet>();
@@ -382,7 +387,7 @@ mod tests {
             node_id,
             listener_rx,
             server_logic_rx,
-            network_controller: Arc::new(NetworkController::new(node_id, node_type, gateway.clone())),
+            network_controller: Arc::new(NetworkController::new(node_id, node_type, gateway.clone(), simulation_controller_notifier.clone())),
             transmission_handlers: Default::default(),
             transmission_handler_event_rx: transmission_handler_to_transmitter_event_rx,
             transmission_handler_event_tx: transmission_handler_to_transmitter_event_tx,

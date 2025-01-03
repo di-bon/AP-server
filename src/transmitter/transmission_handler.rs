@@ -185,11 +185,15 @@ mod tests {
             content: MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent)),
         };
 
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
         let (listener_tx, _listener_rx) = unbounded::<Packet>();
-        let gateway = Gateway::new(0, HashMap::new(), listener_tx);
+        let gateway = Gateway::new(0, HashMap::new(), listener_tx, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
         let (_command_tx, command_rx) = unbounded::<Command>();
-        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone());
+        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone(), simulation_controller_notifier.clone());
         let network_controller = Arc::new(network_controller);
         let destination_node_id: NodeId = 1;
         let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
@@ -221,11 +225,15 @@ mod tests {
             content: MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent)),
         };
 
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
         let (listener_tx, listener_rx) = unbounded::<Packet>();
-        let gateway = Gateway::new(0, HashMap::new(), listener_tx);
+        let gateway = Gateway::new(0, HashMap::new(), listener_tx, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
         let (command_tx, command_rx) = unbounded::<Command>();
-        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone());
+        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone(), simulation_controller_notifier.clone());
         let network_controller = Arc::new(network_controller);
         let destination_node_id: NodeId = 1;
         let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
@@ -263,11 +271,16 @@ mod tests {
             hop_index: 0,
             hops: vec![],
         };
+
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
         let (listener_tx, listener_rx) = unbounded::<Packet>();
-        let gateway = Gateway::new(0, HashMap::new(), listener_tx);
+        let gateway = Gateway::new(0, HashMap::new(), listener_tx, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
         let (command_tx, command_rx) = unbounded::<Command>();
-        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone());
+        let network_controller = NetworkController::new(0, NodeType::Server, gateway.clone(), simulation_controller_notifier.clone());
         let network_controller = Arc::new(network_controller);
         let destination_node_id: NodeId = 1;
         let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
