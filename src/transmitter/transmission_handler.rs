@@ -67,7 +67,7 @@ impl TransmissionHandler {
 
     // Basic version: send all the fragments all at once, then wait for commands, exit when receiving an ACK for each fragment
     // Refined version: use a sliding window (using AIMD? (i.e. Additive Increase Multiplicative Decrease)) to send the fragments
-    fn run(&mut self) {
+    pub fn run(&mut self) {
         let mut hops;
         loop {
             hops = self.network_controller.get_path(self.destination_node_id);

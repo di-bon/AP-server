@@ -1,5 +1,8 @@
 // TODO: remove this when project is finished
-#![allow(dead_code, unused_variables, unused_must_use)]
+// #![allow(dead_code)]
+// #![allow(unused_variables)]
+// #![allow(unused_must_use)]
+// #![allow(clippy::missing_panics_doc)]
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -12,7 +15,7 @@ use wg_2024::packet::{NodeType, Packet};
 use crate::listener::{Listener, ListenerCommand};
 use crate::server_logic::ServerLogic;
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
-use crate::transmitter::Transmitter;
+use crate::transmitter::{Transmitter, TransmitterCommand};
 
 mod transmitter;
 mod listener;
@@ -44,6 +47,8 @@ impl NullPointerDibServer {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
+        let (transmitter_command_tx, transmitter_command_rx) = unbounded::<TransmitterCommand>();
+
         let transmitter = Transmitter::new(
             node_id,
             NodeType::Server,
@@ -52,6 +57,7 @@ impl NullPointerDibServer {
             internal_server_logic_to_transmitter_rx,
             drones_tx,
             simulation_controller_notifier.clone(),
+            transmitter_command_rx
         );
         let transmitter = Arc::new(Mutex::new(transmitter));
 

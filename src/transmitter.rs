@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::thread;
 use crossbeam_channel::{select, unbounded, Receiver, Sender};
 use messages::Message;
 use messages::node_event::NodeEvent;
@@ -26,8 +27,13 @@ enum TransmissionHandlerEvent {
     TransmissionCompleted(u64)
 }
 
+pub enum TransmitterCommand {
+    Quit
+}
+
 // TODO: add integration tests
 
+#[derive(Debug)]
 pub struct Transmitter {
     node_id: NodeId,
     // listener -> transmitter
@@ -41,7 +47,19 @@ pub struct Transmitter {
     transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
     gateway: Arc<Gateway>,
     simulation_controller_notifier: Arc<SimulationControllerNotifier>,
+    transmitter_command_rx: Receiver<TransmitterCommand>,
 }
+
+impl PartialEq for Transmitter {
+    fn eq(&self, other: &Self) -> bool {
+        self.node_id == other.node_id
+        && self.network_controller == other.network_controller
+        && self.transmission_handlers.keys().eq(other.transmission_handlers.keys())
+        && self.gateway.eq(&other.gateway)
+    }
+}
+
+impl Eq for Transmitter { }
 
 impl Transmitter {
     pub fn new(
@@ -52,6 +70,7 @@ impl Transmitter {
         server_logic_rx: Receiver<(NodeId, Message)>,
         connected_drones: HashMap<NodeId, Sender<Packet>>,
         simulation_controller_notifier: Arc<SimulationControllerNotifier>,
+        transmitter_command_rx: Receiver<TransmitterCommand>,
     ) -> Self {
         let gateway = Gateway::new(node_id, connected_drones, listener_tx);
         let gateway = Arc::new(gateway);
@@ -68,10 +87,12 @@ impl Transmitter {
             transmission_handler_event_rx,
             gateway,
             simulation_controller_notifier,
+            transmitter_command_rx,
         }
     }
 
     pub fn run(&mut self) {
+        // when run is called, transmitter should instantaneously flood the network to discover routes
         loop {
             select! {
                 recv(self.listener_rx) -> packet => {
@@ -100,17 +121,24 @@ impl Transmitter {
                         let TransmissionHandlerEvent::TransmissionCompleted(session_id) = event;
                         self.transmission_handlers.remove(&session_id);
                     }
-                }
+                },
+                recv(self.transmitter_command_rx) -> command => {
+                    if let Ok(command) = command {
+                        match command {
+                            TransmitterCommand::Quit => break,
+                        }
+                    }
+                },
             }
         }
     }
 
-    // TODO: test
+    /// Processes a message received from server logic
     fn process_high_level_message(&mut self, message: Message, destination_id: NodeId) {
         let (command_tx, command_rx) = unbounded::<Command>();
 
         let session_id = message.session_id; // TODO: or should be a random number?
-        let transmission_handler = TransmissionHandler::new(
+        let mut transmission_handler = TransmissionHandler::new(
             message,
             self.gateway.clone(),
             self.network_controller.clone(),
@@ -119,11 +147,14 @@ impl Transmitter {
             self.transmission_handler_event_tx.clone(),
         );
 
+        thread::spawn(move || {
+            transmission_handler.run();
+        });
+
         self.transmission_handlers.insert(session_id, command_tx);
     }
 
-    // TODO: test
-    /// Processes a Packet that needs to be transmitted
+    /// Processes a Packet received from listener
     fn process_listener_packet(&mut self, packet: Packet) {
         match packet.pack_type {
             PacketType::Ack(ref ack) => {
@@ -226,8 +257,8 @@ impl Transmitter {
                         source
                     },
                     None => {
-                        // TODO: maybe ignore this message?
-                        panic!("Received a packet with no sender")
+                        log::error!("Received a packet with no sender");
+                        panic!("Received a packet with no sender");
                     }
                 };
                 let path = self.network_controller.get_path(source);
@@ -240,9 +271,10 @@ impl Transmitter {
                         // route at the moment. This should never happen as
                         // said in the protocol, but this case can still arise if
                         // the flood has not yet been completed.
-                        // TODO: handle this case - maybe just send it back to
-                        // listener and continue?
-                        self.gateway.send_to_listener(packet);
+
+                        // TODO: this absolutely CANNOT happen. Consider instantiating something similar to transmission handler for ACKs
+                        // or maybe just reverse the hops of the header if there is no known route?
+                        self.gateway.send_to_listener(packet); // TODO: fix this
                         return;
                     }
                 };
@@ -269,24 +301,198 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::thread;
-    use crossbeam_channel::unbounded;
-    use messages::Message;
+    use std::thread::sleep;
+    use std::time::Duration;
+    use assembler::Assembler;
+    use assembler::naive_assembler::NaiveAssembler;
+    use crossbeam_channel::{unbounded, Receiver, Sender};
+    use messages::{Message, MessageType, MessageUtilities, ResponseType, TextResponse};
     use messages::node_event::NodeEvent;
+    use ntest::timeout;
     use wg_2024::network::{NodeId, SourceRoutingHeader};
-    use wg_2024::packet::{FloodResponse, NodeType, Packet, PacketType};
+    use wg_2024::packet::{Ack, FloodResponse, Fragment, NodeType, Packet, PacketType};
     use crate::simulation_controller_notifier::SimulationControllerNotifier;
-    use crate::transmitter::Transmitter;
+    use crate::transmitter::gateway::Gateway;
+    use crate::transmitter::network_controller::NetworkController;
+    use crate::transmitter::{TransmissionHandlerEvent, Transmitter, TransmitterCommand};
 
+    fn create_transmitter(node_id: NodeId, node_type: NodeType, connected_drones: HashMap<NodeId, Sender<Packet>>)
+        -> (Transmitter, Sender<Packet>, Receiver<Packet>, Sender<(NodeId, Message)>, Receiver<NodeEvent>, Sender<TransmitterCommand>)
+    {
+        let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded::<Packet>();
+        let (transmitter_to_listener_tx, transmitter_to_listener_rx) = unbounded::<Packet>();
+        let (server_logic_to_transmitter_tx, server_logic_to_transmitter_rx) = unbounded::<(NodeId, Message)>();
+
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
+        let (transmitter_command_tx, transmitter_command_rx) = unbounded::<TransmitterCommand>();
+
+        let transmitter = Transmitter::new(
+            node_id,
+            node_type,
+            listener_to_transmitter_rx,
+            transmitter_to_listener_tx,
+            server_logic_to_transmitter_rx,
+            connected_drones,
+            simulation_controller_notifier,
+            transmitter_command_rx
+        );
+
+        (transmitter, listener_to_transmitter_tx, transmitter_to_listener_rx, server_logic_to_transmitter_tx, simulation_controller_rx, transmitter_command_tx)
+    }
+
+    #[test]
     fn initialize() {
-        todo!()
+        let node_id = 0;
+        let node_type = NodeType::Server;
+        let mut connected_drones: HashMap<NodeId, Sender<Packet>> = HashMap::new();
+
+        let drone_1_id = 1;
+        let (drone_1_tx, drone_1_rx) = unbounded::<Packet>();
+        connected_drones.insert(drone_1_id, drone_1_tx);
+
+        let (transmitter,
+            listener_to_transmitter_tx,
+            transmitter_to_listener_rx,
+            server_logic_to_transmitter_tx,
+            simulation_controller_rx,
+            transmitter_command_tx) = create_transmitter(node_id, node_type, connected_drones);
+
+
+        let mut neighbors = HashMap::new();
+        let (tx, rx) = unbounded::<Packet>();
+        neighbors.insert(1, tx);
+        let (tx, rx) = unbounded::<Packet>();
+        let gateway = Gateway::new(node_id, neighbors, tx);
+        let gateway = Arc::new(gateway);
+
+        let (listener_tx, listener_rx) = unbounded::<Packet>();
+        let (server_logic_tx, server_logic_rx) = unbounded::<(NodeId, Message)>();
+        let (transmitter_to_transmission_handler_event_tx, transmitter_to_transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
+        let (transmission_handler_to_transmitter_event_tx, transmission_handler_to_transmitter_event_rx) = unbounded::<TransmissionHandlerEvent>();
+
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+
+        let (transmitter_command_tx, transmitter_command_rx) = unbounded::<TransmitterCommand>();
+
+        let expected = Transmitter {
+            node_id,
+            listener_rx,
+            server_logic_rx,
+            network_controller: Arc::new(NetworkController::new(node_id, node_type, gateway.clone())),
+            transmission_handlers: Default::default(),
+            transmission_handler_event_rx: transmission_handler_to_transmitter_event_rx,
+            transmission_handler_event_tx: transmission_handler_to_transmitter_event_tx,
+            gateway: gateway.clone(),
+            simulation_controller_notifier: Arc::new(SimulationControllerNotifier::new(simulation_controller_tx)),
+            transmitter_command_rx
+        };
+
+        assert_eq!(transmitter, expected);
     }
 
+    #[test]
+    #[timeout(2000)]
     fn check_process_high_level_message() {
-        todo!()
+        let node_id = 0;
+        let node_type = NodeType::Server;
+        let mut connected_drones: HashMap<NodeId, Sender<Packet>> = HashMap::new();
+
+        let drone_1_id = 1;
+        let (drone_1_tx, drone_1_rx) = unbounded::<Packet>();
+        connected_drones.insert(drone_1_id, drone_1_tx);
+
+        let (mut transmitter,
+            listener_to_transmitter_tx,
+            transmitter_to_listener_rx,
+            server_logic_to_transmitter_tx,
+            simulation_controller_rx,
+            transmitter_command_tx
+        ) = create_transmitter(node_id, node_type, connected_drones);
+
+        let message = Message {
+            source_id: 0,
+            session_id: 0,
+            content: MessageType::Response(
+                ResponseType::TextResponse(
+                    TextResponse::Text(
+                        "test".to_string()
+                    )
+                )
+            ),
+        };
+
+        transmitter.process_high_level_message(message.clone(), 1);
+
+        // let received = simulation_controller_rx.recv().unwrap();
+        //
+        // assert!(matches!(received, NodeEvent::PacketSent(_)));
+
+        assert_eq!(transmitter.transmission_handlers.len(), 1);
     }
 
+    #[test]
+    #[timeout(2000)]
     fn check_process_listener_packet() {
-        todo!()
+        let node_id = 0;
+        let node_type = NodeType::Server;
+        let mut connected_drones: HashMap<NodeId, Sender<Packet>> = HashMap::new();
+
+        let drone_1_id = 1;
+        let (drone_1_tx, drone_1_rx) = unbounded::<Packet>();
+        connected_drones.insert(drone_1_id, drone_1_tx);
+
+        let (mut transmitter,
+            listener_to_transmitter_tx,
+            transmitter_to_listener_rx,
+            server_logic_to_transmitter_tx,
+            simulation_controller_rx,
+            transmitter_command_tx) = create_transmitter(node_id, node_type, connected_drones);
+
+        let packet = Packet {
+            routing_header: SourceRoutingHeader { hop_index: 1, hops: vec![1, 0] },
+            session_id: 0,
+            pack_type: PacketType::MsgFragment( Fragment {
+                fragment_index: 0,
+                total_n_fragments: 1,
+                length: 128,
+                data: [0; 128],
+            }),
+        };
+
+        thread::spawn(move || {
+            transmitter.run();
+            transmitter.process_listener_packet(packet);
+        });
+
+        let flood_response = FloodResponse {
+            flood_id: 0,
+            path_trace: vec![
+                (node_id, node_type),
+                (1, NodeType::Drone),
+            ],
+        };
+        let flood_response = Packet {
+            routing_header: Default::default(),
+            session_id: 0,
+            pack_type: PacketType::FloodResponse(flood_response),
+        };
+        listener_to_transmitter_tx.send(flood_response).expect("Cannot communicate with transmitter");
+        sleep(Duration::from_millis(200));
+        transmitter_command_tx.send(TransmitterCommand::Quit);
+
+        let received = drone_1_rx.recv().unwrap();
+
+        let expected = Packet {
+            routing_header: SourceRoutingHeader { hop_index: 1, hops: vec![node_id, 1] },
+            session_id: 0,
+            pack_type: PacketType::Ack(Ack {
+                fragment_index: 0,
+            }),
+        };
+        assert_eq!(received, expected);
     }
 
     #[test]
@@ -302,6 +508,7 @@ mod tests {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
+        let (transmitter_command_tx, transmitter_command_rx) = unbounded::<TransmitterCommand>();
 
         let connected_drones = HashMap::new();
 
@@ -317,6 +524,7 @@ mod tests {
             internal_server_logic_to_transmitter_rx,
             connected_drones,
             simulation_controller_notifier,
+            transmitter_command_rx,
         );
 
         thread::spawn(move || {
