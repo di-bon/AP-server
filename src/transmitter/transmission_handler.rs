@@ -6,8 +6,10 @@ use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
 use crossbeam_channel::{select, Receiver, Sender};
 use messages::{Message, MessageUtilities};
+use messages::node_event::NodeEvent;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Fragment, Packet, PacketType};
+use crate::simulation_controller_notifier::SimulationControllerNotifier;
 use crate::transmitter::{Command, TransmissionHandlerEvent};
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::network_controller::NetworkController;
@@ -31,6 +33,7 @@ pub(super) struct TransmissionHandler {
     command_rx: Receiver<Command>,
     received_acks: HashSet<u64>,
     transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
+    simulation_controller_notifier: Arc<SimulationControllerNotifier>,
 }
 
 impl TransmissionHandler {
@@ -41,6 +44,7 @@ impl TransmissionHandler {
         destination_node_id: NodeId,
         command_rx: Receiver<Command>,
         transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
+        simulation_controller_notifier: Arc<SimulationControllerNotifier>,
     ) -> Self {
         let to_be_fragmented = message.content.clone();
         let fragments = NaiveAssembler::disassemble(&to_be_fragmented.stringify().into_bytes());
@@ -62,6 +66,7 @@ impl TransmissionHandler {
             command_rx,
             received_acks: HashSet::new(),
             transmission_handler_event_tx,
+            simulation_controller_notifier
         }
     }
 
@@ -84,7 +89,9 @@ impl TransmissionHandler {
         };
         self.source_routing_header = source_routing_header;
 
-        // TODO: send StartingMessageTransmission - or should the server logic the one who sends this?
+        let event = NodeEvent::StartingMessageTransmission(self.message.clone());
+        self.simulation_controller_notifier.send_event(event);
+
         // Send all packets at once
         for fragment in &self.fragments {
             let packet = self.create_packet(fragment.clone());
@@ -116,7 +123,8 @@ impl TransmissionHandler {
                             Command::Confirmed(fragment_index) => {
                                 self.received_acks.insert(fragment_index);
                                 if self.received_acks.len() == self.fragments.len() {
-                                    // TODO: send MessageSentSuccessfully
+                                    let event = NodeEvent::MessageSentSuccessfully(self.message.clone());
+                                    self.simulation_controller_notifier.send_event(event);
                                     break;
                                 }
                             }
@@ -186,6 +194,10 @@ mod tests {
         let destination_node_id: NodeId = 1;
         let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
 
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
         let transmission_handler = TransmissionHandler::new(
             message.clone(),
             gateway,
@@ -193,6 +205,7 @@ mod tests {
             destination_node_id,
             command_rx,
             transmission_handler_event_tx,
+            simulation_controller_notifier,
         );
 
         assert_eq!(message.source_id, transmission_handler.source_id);
@@ -217,13 +230,18 @@ mod tests {
         let destination_node_id: NodeId = 1;
         let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
 
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
         let transmission_handler = TransmissionHandler::new(
             message.clone(),
             gateway,
             network_controller,
             destination_node_id,
             command_rx,
-            transmission_handler_event_tx
+            transmission_handler_event_tx,
+            simulation_controller_notifier
         );
 
         let expected_packet = Packet {
@@ -254,6 +272,10 @@ mod tests {
         let destination_node_id: NodeId = 1;
         let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
 
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
+
         let mut transmission_handler = TransmissionHandler::new(
             message.clone(),
             gateway,
@@ -261,6 +283,7 @@ mod tests {
             destination_node_id,
             command_rx,
             transmission_handler_event_tx,
+            simulation_controller_notifier,
         );
 
         let expected_source_routing_header = SourceRoutingHeader {

@@ -145,6 +145,7 @@ impl Transmitter {
             destination_id,
             command_rx,
             self.transmission_handler_event_tx.clone(),
+            self.simulation_controller_notifier.clone(),
         );
 
         thread::spawn(move || {
