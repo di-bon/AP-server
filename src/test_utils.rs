@@ -1,5 +1,5 @@
-// #[cfg(test)]
-// pub use crate::listener;
+#[cfg(any(test, feature = "integration-testing"))]
+pub use crate::listener::*;
 
 #[cfg(any(test, feature = "integration-testing"))]
 pub use crate::transmitter::*;
@@ -9,6 +9,5 @@ pub use crate::transmitter::TransmitterCommand;
 #[cfg(any(test, feature = "integration-testing"))]
 pub use crate::simulation_controller_notifier::*;
 
-//
 // #[cfg(test)]
-// pub use crate::server_logic;
+// pub use crate::server_logic::*;
