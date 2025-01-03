@@ -29,3 +29,18 @@ impl SimulationControllerNotifier {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crossbeam_channel::unbounded;
+    use super::*;
+
+    #[test]
+    fn initialize() {
+        let (tx, rx) = unbounded();
+        let notifier = SimulationControllerNotifier::new(tx);
+
+        let notifier = format!("{notifier:?}");
+        assert_eq!(notifier, "SimulationControllerNotifier");
+    }
+}
