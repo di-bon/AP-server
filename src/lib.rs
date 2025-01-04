@@ -75,7 +75,7 @@ impl NullPointerDibServer {
         );
         let listener = Arc::new(Mutex::new(listener));
 
-        let server_logic = ServerLogic::new();
+        let server_logic = ServerLogic::new(internal_server_logic_to_transmitter_tx, internal_listener_to_server_logic_rx);
         let server_logic = Arc::new(Mutex::new(server_logic));
 
         Self {
