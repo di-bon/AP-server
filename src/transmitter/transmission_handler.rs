@@ -22,7 +22,6 @@ use crate::transmitter::network_controller::NetworkController;
 /// said packets to the gateway. All created packets will share the same `SourceRoutingHeader`,
 /// unless it gets updated using the `update_source_routing_header` method
 pub(super) struct TransmissionHandler {
-    source_routing_header: SourceRoutingHeader,
     message: Message,
     fragments: Vec<Fragment>,
     source_id: NodeId,
@@ -50,11 +49,6 @@ impl TransmissionHandler {
         let source_id = message.source_id;
         let session_id = message.session_id;
         Self {
-            // placeholder for source_routing_header that will be later updated in the run() method
-            source_routing_header: SourceRoutingHeader {
-                hop_index: 0,
-                hops: vec![],
-            },
             message,
             fragments,
             source_id,
@@ -72,15 +66,14 @@ impl TransmissionHandler {
     // Basic version: send all the fragments all at once, then wait for commands, exit when receiving an ACK for each fragment
     // Refined version: use a sliding window (using AIMD? (i.e. Additive Increase Multiplicative Decrease)) to send the fragments
     pub fn run(&mut self) {
-        let source_routing_header = self.find_new_routing_header();
-        self.update_source_routing_header(source_routing_header);
+        let mut source_routing_header = self.find_new_routing_header();
 
         let event = NodeEvent::StartingMessageTransmission(self.message.clone());
         self.simulation_controller_notifier.send_event(event);
 
         // Send all packets at once
         for fragment in &self.fragments {
-            let packet = self.create_packet(fragment.clone());
+            let packet = self.create_packet(fragment.clone(), source_routing_header.clone());
             self.gateway.forward(packet);
         };
 
@@ -94,7 +87,7 @@ impl TransmissionHandler {
                                 let fragment = self.fragments.get(fragment_index as usize);
                                 match fragment {
                                     Some(fragment) => {
-                                        let packet = self.create_packet(fragment.clone());
+                                        let packet = self.create_packet(fragment.clone(), source_routing_header.clone());
                                         self.gateway.forward(packet);
                                     },
                                     None => {
@@ -115,8 +108,7 @@ impl TransmissionHandler {
                                 }
                             },
                             TransmissionHandlerCommand::UpdateHeader => {
-                                let source_routing_header = self.find_new_routing_header();
-                                self.update_source_routing_header(source_routing_header);
+                                source_routing_header = self.find_new_routing_header();
                             },
                             /*
                             Command::UpdateSourceRoutingHeader(source_routing_header) => {
@@ -146,9 +138,9 @@ impl TransmissionHandler {
         log::info!("Transmission handler for session {} terminated", self.session_id);
     }
 
-    fn create_packet(&self, fragment: Fragment) -> Packet {
+    fn create_packet(&self, fragment: Fragment, source_routing_header: SourceRoutingHeader) -> Packet {
         Packet {
-            routing_header: self.source_routing_header.clone(),
+            routing_header: source_routing_header,
             session_id: self.session_id,
             pack_type: PacketType::MsgFragment(fragment),
         }
@@ -169,10 +161,6 @@ impl TransmissionHandler {
             hops: hops.unwrap(),
         };
         source_routing_header
-    }
-
-    fn update_source_routing_header(&mut self, source_routing_header: SourceRoutingHeader) {
-        self.source_routing_header = source_routing_header;
     }
 }
 
@@ -256,9 +244,11 @@ mod tests {
             session_id: 51,
             pack_type: PacketType::MsgFragment(transmission_handler.fragments[0].clone()),
         };
-        assert_eq!(expected_packet, transmission_handler.create_packet(transmission_handler.fragments[0].clone()))
+        assert_eq!(expected_packet, transmission_handler.create_packet(transmission_handler.fragments[0].clone(), SourceRoutingHeader { hop_index: 0, hops: vec![] }))
     }
 
+    /*
+    // To be removed
     #[test]
     fn update_source_routing_header() {
         let message = Message {
@@ -288,6 +278,7 @@ mod tests {
 
         assert_eq!(transmission_handler.source_routing_header, new_source_routing_header);
     }
+     */
 
     #[test]
     #[timeout(2000)]

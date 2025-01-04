@@ -12,10 +12,6 @@ use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Nack, NackType, Packet, PacketType};
 use messages::MessageUtilities;
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
-/*
-   TODO:
-   - write tests
-*/
 
 pub enum ListenerCommand {
     Quit,
@@ -73,7 +69,10 @@ impl Listener {
                     match packet {
                         Ok(packet) => {
                             log::info!("Received packet {packet}");
-                            // TODO: send PacketReceived
+
+                            let event = NodeEvent::PacketReceived(packet.clone());
+                            self.simulation_controller_notifier.send_event(event);
+
                             self.process_drone_packet(packet);
                         },
                         Err(err) => {
@@ -174,6 +173,9 @@ impl Listener {
 
                 // this communication starts the ACK generation for the received fragment.
                 // the logic is handled by the transmitter
+                self.forward_packet_to_transmitter(packet.clone());
+
+                /*
                 match self.transmitter_tx.send(packet.clone()) {
                     Ok(()) => {
                         log::info!("Fragment sent to transmitter to generate its ACK packet");
@@ -183,6 +185,7 @@ impl Listener {
                         panic!("Listener cannot communicate with transmitter using the internal channel");
                     }
                 }
+                 */
 
                 self.store_fragment(session_id, fragment.clone());
                 let storer = self.storers.get(&session_id);
@@ -210,8 +213,8 @@ impl Listener {
                         }
                     }
                     None => {
-                        // TODO: maybe panic?
                         log::warn!("Storer for session {session_id} not found. At this point however it should exist");
+                        panic!("Storer for session {session_id} not found. At this point however it should exist");
                     }
                 }
             }
