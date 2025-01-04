@@ -149,6 +149,8 @@ impl Listener {
                 let wrong_destination = current_hop_id != self.node_id;
 
                 if !packet.routing_header.is_last_hop() || wrong_destination {
+                    // TODO: review this part: transmitter does NOT process UnexpectedRecipient NACKs, so it is useless to send them
+                    // maybe just ignore packet?
                     let nack = Nack {
                         fragment_index: fragment.fragment_index,
                         nack_type: NackType::UnexpectedRecipient(self.node_id),
