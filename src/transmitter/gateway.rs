@@ -72,7 +72,7 @@ impl Gateway {
     }
 
     /// Sends a FloodResponse packet
-    pub fn send_flood_response(&self, flood_response: FloodResponse, session_id: u64) {
+    pub fn send_flood_response(&self, flood_response: FloodResponse) {
         let forward_to = match flood_response.path_trace.iter().nth(1) {
             Some((node_id, _node_type)) => *node_id,
             None => {
@@ -85,7 +85,7 @@ impl Gateway {
                 hop_index: 0,
                 hops: vec![],
             },
-            session_id,
+            session_id: 0, // TODO: default value
             pack_type: PacketType::FloodResponse(flood_response),
         };
         let channel = match self.neighbors.get(&forward_to) {
@@ -456,7 +456,7 @@ mod test {
             path_trace: vec![(gateway_node_id, NodeType::Server), (1, NodeType::Drone)],
         };
 
-        gateway.send_flood_response(flood_response.clone(), session_id);
+        gateway.send_flood_response(flood_response.clone());
 
         let received = rx_drone_1.recv().unwrap();
 
@@ -465,7 +465,7 @@ mod test {
                 hop_index: 0,
                 hops: vec![],
             },
-            session_id,
+            session_id: 0,
             pack_type: PacketType::FloodResponse(flood_response),
         };
         assert_eq!(received, expected);
@@ -494,7 +494,7 @@ mod test {
             path_trace: vec![(gateway_node_id, NodeType::Server)],
         };
 
-        gateway.send_flood_response(flood_response, session_id);
+        gateway.send_flood_response(flood_response);
     }
 
     #[test]
@@ -520,7 +520,7 @@ mod test {
             path_trace: vec![(gateway_node_id, NodeType::Server), (100, NodeType::Drone)],
         };
 
-        gateway.send_flood_response(flood_response, session_id);
+        gateway.send_flood_response(flood_response);
     }
 
     #[test]

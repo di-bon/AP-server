@@ -2,7 +2,7 @@ use std::thread;
 use ntest::timeout;
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{Ack, Fragment, Nack, NackType, Packet, PacketType};
-use ap_server::test_utils::ListenerCommand;
+use ap_server::test_utils::{ListenerCommand, TransmitterInternalCommand};
 use crate::common::{create_listener, create_simulation_controller_notifier};
 
 mod common;
@@ -29,6 +29,7 @@ fn check_quit_command() -> thread::Result<()> {
     handle.join()
 }
 
+/*
 #[test]
 #[timeout(2000)]
 fn check_internal_transmitter_to_listener_channel() {
@@ -56,12 +57,13 @@ fn check_internal_transmitter_to_listener_channel() {
         pack_type: PacketType::Nack(nack),
     };
 
-    transmitter_to_listener_tx.send(nack.clone()).expect("Transmitter cannot communicate with listener");
+    transmitter_to_listener_tx.send(nack).expect("Transmitter cannot communicate with listener");
 
     let received = listener_to_transmitter_rx.recv().unwrap();
 
     assert_eq!(received, nack);
 }
+ */
 
 #[test]
 #[timeout(2000)]
@@ -95,14 +97,14 @@ fn check_unexpected_recipient() {
     drones_to_listener_tx.send(packet.clone()).expect("Transmitter cannot communicate with listener");
 
     let received = listener_to_transmitter_rx.recv().unwrap();
-    
-    let expected = Packet {
-        routing_header: Default::default(),
+
+    let expected = TransmitterInternalCommand::ProcessNack {
         session_id: 0,
-        pack_type: PacketType::Nack( Nack {
+        nack: Nack {
             fragment_index: 0,
             nack_type: NackType::UnexpectedRecipient(node_id),
-        })
+        },
+        source: 100,
     };
 
     assert_eq!(received, expected);
@@ -113,8 +115,9 @@ fn check_unexpected_recipient() {
         length: 128,
         data: [0; 128],
     };
+
     let packet = Packet {
-        routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![100, node_id, 1] },
+        routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![100, node_id] },
         session_id: 0,
         pack_type: PacketType::MsgFragment(fragment),
     };
@@ -123,13 +126,13 @@ fn check_unexpected_recipient() {
 
     let received = listener_to_transmitter_rx.recv().unwrap();
 
-    let expected = Packet {
-        routing_header: Default::default(),
+    let expected = TransmitterInternalCommand::ProcessNack {
         session_id: 0,
-        pack_type: PacketType::Nack( Nack {
+        nack: Nack {
             fragment_index: 0,
             nack_type: NackType::UnexpectedRecipient(node_id),
-        })
+        },
+        source: 100,
     };
 
     assert_eq!(received, expected);

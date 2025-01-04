@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 use messages::node_event::{EventNetworkGraph, EventNetworkNode, NodeEvent};
 use rand::Rng;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{FloodRequest, FloodResponse, NackType, NodeType, Packet, PacketType};
+use wg_2024::packet::{FloodRequest, FloodResponse, Nack, NackType, NodeType, Packet, PacketType};
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::network_controller::network_graph::NetworkGraph;
@@ -64,48 +64,27 @@ impl NetworkController {
         self.send_known_network_graph();
     }
 
-    pub fn update_from_nack(&self, nack_packet: &Packet) {
-        match &nack_packet.pack_type {
-            PacketType::Nack(nack) => {
-                match nack.nack_type {
-                    NackType::ErrorInRouting(next_hop) => {
-                        // remove edge between next_hop and nack_packet.header.0
-                        let from = match nack_packet.routing_header.source() {
-                            None => {
-                                panic!("Received a NACK packet with no source in header")
-                            }
-                            Some(source) => source
-                        };
-                        self.network_graph.read().unwrap().delete_bidirectional_edge(from, next_hop);
+    pub fn update_from_nack(&self, nack: &Nack, source: NodeId) {
+        match nack.nack_type {
+            NackType::ErrorInRouting(next_hop) => {
+                // remove edge between next_hop and source
+                self.network_graph.read().unwrap().delete_bidirectional_edge(source, next_hop);
+                self.send_known_network_graph();
+            }
+            NackType::DestinationIsDrone | NackType::UnexpectedRecipient(_) => {
+                // Something went wrong, reset the network graph and flood the network again
+                self.network_graph.write().unwrap().reset_graph();
+                self.send_known_network_graph();
+                self.flood_network();
+            }
+            NackType::Dropped => {
+                // Update num_of_dropped_packets
+                self.network_graph.read().unwrap().increment_num_of_dropped_packets(source);
 
-                        self.send_known_network_graph();
-                    }
-                    NackType::DestinationIsDrone | NackType::UnexpectedRecipient(_) => {
-                        // Something went wrong, reset the network graph and flood the network again
-                        self.network_graph.write().unwrap().reset_graph();
-
-                        self.send_known_network_graph();
-
-
-                        self.flood_network();
-                    }
-                    NackType::Dropped => {
-                        // Update num_of_dropped_packets
-                        let faulty_node_id = match nack_packet.routing_header.source() {
-                            Some(node) => node,
-                            None => panic!("Received a packet with no hops in routing header")
-                        };
-                        self.network_graph.read().unwrap().increment_num_of_dropped_packets(faulty_node_id);
-
-                        let event = NodeEvent::UpdateDroppedPackets {
-                            node: faulty_node_id,
-                            num_of_dropped_packets: self.network_graph.read().unwrap().get_num_of_dropped_packets(faulty_node_id).unwrap(), // TODO: maybe consider refactoring this?
-                        };
-                    }
-                }
-            },
-            _ => {
-                panic!("Expected nack packet!")
+                let event = NodeEvent::UpdateDroppedPackets {
+                    node: source,
+                    num_of_dropped_packets: self.network_graph.read().unwrap().get_num_of_dropped_packets(source).unwrap(), // TODO: maybe consider refactoring this?
+                };
             }
         }
     }
@@ -241,16 +220,16 @@ mod tests {
             fragment_index: 0,
             nack_type: NackType::ErrorInRouting(8),
         };
-        let nack = Packet {
-            routing_header: SourceRoutingHeader {
-                hop_index: 1,
-                hops: vec![1, 0],
-            },
-            session_id: 0,
-            pack_type: PacketType::Nack(nack),
-        };
+        // let nack = Packet {
+        //     routing_header: SourceRoutingHeader {
+        //         hop_index: 1,
+        //         hops: vec![1, 0],
+        //     },
+        //     session_id: 0,
+        //     pack_type: PacketType::Nack(nack),
+        // };
 
-        network_controller.update_from_nack(&nack);
+        network_controller.update_from_nack(&nack, 1);
 
         let hops = network_controller.get_path(8);
         let expected = Some(vec![0, 2, 5, 8]);
@@ -298,15 +277,15 @@ mod tests {
             fragment_index: 0,
             nack_type: NackType::Dropped,
         };
-        let nack = Packet {
-            routing_header: SourceRoutingHeader {
-                hop_index: 2,
-                hops: vec![2, 1, 0],
-            },
-            session_id: 0,
-            pack_type: PacketType::Nack(nack),
-        };
-        network_controller.update_from_nack(&nack);
+        // let nack = Packet {
+        //     routing_header: SourceRoutingHeader {
+        //         hop_index: 2,
+        //         hops: vec![2, 1, 0],
+        //     },
+        //     session_id: 0,
+        //     pack_type: PacketType::Nack(nack),
+        // };
+        network_controller.update_from_nack(&nack, 2);
 
         let hops = network_controller.get_path(3);
         let expected = Some(vec![0, 1, 4, 3]);
@@ -402,16 +381,17 @@ mod tests {
             fragment_index: 0,
             nack_type: NackType::DestinationIsDrone,
         };
-        let nack = Packet {
-            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-            session_id: 0,
-            pack_type: PacketType::Nack(nack),
-        };
-        network_controller.update_from_nack(&nack);
+        // let nack = Packet {
+        //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+        //     session_id: 0,
+        //     pack_type: PacketType::Nack(nack),
+        // };
+        network_controller.update_from_nack(&nack, 1);
 
         assert_eq!(network_controller.network_graph.read().unwrap().nodes.read().unwrap().len(), 1);
     }
 
+    /*
     #[test]
     #[should_panic(expected = "Received a NACK packet with no source in header")]
     fn error_in_routing_with_no_header() {
@@ -434,15 +414,17 @@ mod tests {
             fragment_index: 0,
             nack_type: NackType::ErrorInRouting(10),
         };
-        let nack = Packet {
-            routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-            session_id: 0,
-            pack_type: PacketType::Nack(nack),
-        };
+        // let nack = Packet {
+        //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+        //     session_id: 0,
+        //     pack_type: PacketType::Nack(nack),
+        // };
 
-        network_controller.update_from_nack(&nack);
+        network_controller.update_from_nack(&nack, 0);
     }
+     */
 
+    /*
     #[test]
     #[should_panic(expected = "Received a packet with no hops in routing header")]
     fn dropped_with_no_header() {
@@ -473,7 +455,9 @@ mod tests {
 
         network_controller.update_from_nack(&nack);
     }
+     */
 
+    /*
     #[test]
     #[should_panic(expected = "Expected nack packet!")]
     fn update_from_nack_wrong_packet_type() {
@@ -503,4 +487,5 @@ mod tests {
 
         network_controller.update_from_nack(&ack);
     }
+     */
 }

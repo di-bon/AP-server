@@ -9,7 +9,7 @@ use messages::node_event::NodeEvent;
 use ntest::timeout;
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Nack, NackType, NodeType, Packet, PacketType};
-use ap_server::test_utils::TransmitterCommand;
+use ap_server::test_utils::{TransmitterInternalCommand, TransmitterUserCommand};
 use crate::common::{create_simulation_controller_notifier, create_transmitter};
 
 mod common;
@@ -35,7 +35,7 @@ fn check_quit_command() -> thread::Result<()> {
         transmitter.run();
     });
 
-    let _ = transmitter_command_tx.send(TransmitterCommand::Quit);
+    let _ = transmitter_command_tx.send(TransmitterUserCommand::Quit);
 
     handle.join()
 }
@@ -72,13 +72,15 @@ fn check_message_handling_and_forwarding() {
             (2, NodeType::Client),
         ],
     };
-    let flood_response = Packet {
-        routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-        session_id: 0,
-        pack_type: PacketType::FloodResponse(flood_response),
-    };
+    // let flood_response = Packet {
+    //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+    //     session_id: 0,
+    //     pack_type: PacketType::FloodResponse(flood_response),
+    // };
 
-    listener_to_transmitter_tx.send(flood_response).expect("Listener cannot communicate with transmitter");
+    let command = TransmitterInternalCommand::ProcessFloodResponse(flood_response);
+
+    listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     // send Message
 
@@ -135,13 +137,20 @@ fn check_message_handling_and_forwarding() {
             fragment_index,
         };
 
-        let ack = Packet {
-            routing_header: SourceRoutingHeader { hop_index: 2, hops: expected_packet.routing_header.hops.iter().rev().copied().collect() },
+        // let ack = Packet {
+        //     routing_header: SourceRoutingHeader { hop_index: 2, hops: expected_packet.routing_header.hops.iter().rev().copied().collect() },
+        //     session_id,
+        //     pack_type: PacketType::Ack(ack),
+        // };
+
+        let source = expected_packet.routing_header.source().unwrap();
+
+        let command = TransmitterInternalCommand::ForwardAckTo {
             session_id,
-            pack_type: PacketType::Ack(ack),
+            ack
         };
 
-        listener_to_transmitter_tx.send(ack).expect("Listener cannot communicate with transmitter");
+        listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
     }
 
     // check NodeEvent::MessageSentSuccessfully sent to SimulationControllerNotifier
@@ -182,13 +191,15 @@ fn check_unexpected_ack() {
             (2, NodeType::Client),
         ],
     };
-    let flood_response = Packet {
-        routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-        session_id: 0,
-        pack_type: PacketType::FloodResponse(flood_response),
-    };
+    // let flood_response = Packet {
+    //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+    //     session_id: 0,
+    //     pack_type: PacketType::FloodResponse(flood_response),
+    // };
 
-    listener_to_transmitter_tx.send(flood_response).expect("Listener cannot communicate with transmitter");
+    let command = TransmitterInternalCommand::ProcessFloodResponse(flood_response);
+
+    listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     // send ACK packet
 
@@ -196,13 +207,19 @@ fn check_unexpected_ack() {
     let ack = Ack {
         fragment_index,
     };
-    let ack = Packet {
-        routing_header: SourceRoutingHeader { hop_index: 1, hops: vec![1, node_id] },
-        session_id: 0,
-        pack_type: PacketType::Ack(ack),
+
+    // let ack = Packet {
+    //     routing_header: SourceRoutingHeader { hop_index: 1, hops: vec![1, node_id] },
+    //     session_id: 0,
+    //     pack_type: PacketType::Ack(ack),
+    // };
+
+    let command = TransmitterInternalCommand::ForwardAckTo {
+        session_id: 10,
+        ack,
     };
 
-    listener_to_transmitter_tx.send(ack).expect("Listener cannot communicate with transmitter");
+    listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     // check NACK response Packet
 
@@ -221,6 +238,7 @@ fn check_unexpected_ack() {
 }
 
 #[test]
+#[timeout(2000)]
 fn check_flood_request_processing() {
     let node_id = 0;
     let node_type = NodeType::Server;
@@ -251,19 +269,20 @@ fn check_flood_request_processing() {
             (2, NodeType::Client),
         ],
     };
-    let flood_response = Packet {
-        routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-        session_id: 0,
-        pack_type: PacketType::FloodResponse(flood_response),
-    };
+    // let flood_response = Packet {
+    //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+    //     session_id: 0,
+    //     pack_type: PacketType::FloodResponse(flood_response),
+    // };
 
-    listener_to_transmitter_tx.send(flood_response).expect("Listener cannot communicate with transmitter");
+    let command = TransmitterInternalCommand::ProcessFloodResponse(flood_response);
+
+    listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     // send FloodRequest
 
     let flood_id = 7;
     let initiator_id = 3;
-    let session_id = 10;
 
     let flood_request = FloodRequest {
         flood_id,
@@ -274,13 +293,15 @@ fn check_flood_request_processing() {
         ],
     };
 
-    let flood_request = Packet {
-        routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-        session_id,
-        pack_type: PacketType::FloodRequest(flood_request),
-    };
+    // let flood_request = Packet {
+    //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+    //     session_id,
+    //     pack_type: PacketType::FloodRequest(flood_request),
+    // };
 
-    listener_to_transmitter_tx.send(flood_request).expect("Listener cannot communicate with transmitter");
+    let command = TransmitterInternalCommand::ProcessFloodRequest(flood_request);
+
+    listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     // check forwarded Packets
 
@@ -294,7 +315,7 @@ fn check_flood_request_processing() {
     };
     let expected_flood_response = Packet {
         routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-        session_id,
+        session_id: 0,
         pack_type: PacketType::FloodResponse(expected_flood_response),
     };
 
@@ -336,13 +357,15 @@ fn check_nack_processing() {
             (4, NodeType::Client),
         ],
     };
-    let flood_response = Packet {
-        routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-        session_id: 0,
-        pack_type: PacketType::FloodResponse(flood_response),
-    };
+    // let flood_response = Packet {
+    //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+    //     session_id: 0,
+    //     pack_type: PacketType::FloodResponse(flood_response),
+    // };
 
-    listener_to_transmitter_tx.send(flood_response).expect("Listener cannot communicate with transmitter");
+    let command = TransmitterInternalCommand::ProcessFloodResponse(flood_response);
+
+    listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     let event = simulation_controller_rx.recv().unwrap();
     assert!(matches!(event, NodeEvent::KnownNetworkGraph(_)));
@@ -359,13 +382,15 @@ fn check_nack_processing() {
             (4, NodeType::Client),
         ],
     };
-    let flood_response = Packet {
-        routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-        session_id: 0,
-        pack_type: PacketType::FloodResponse(flood_response),
-    };
+    // let flood_response = Packet {
+    //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
+    //     session_id: 0,
+    //     pack_type: PacketType::FloodResponse(flood_response),
+    // };
 
-    listener_to_transmitter_tx.send(flood_response).expect("Listener cannot communicate with transmitter");
+    let command = TransmitterInternalCommand::ProcessFloodResponse(flood_response);
+
+    listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     let event = simulation_controller_rx.recv().unwrap();
     assert!(matches!(event, NodeEvent::KnownNetworkGraph(_)));
@@ -402,13 +427,15 @@ fn check_nack_processing() {
         fragment_index: 0,
         nack_type: NackType::ErrorInRouting(3),
     };
-    let nack = Packet {
-        routing_header: SourceRoutingHeader { hop_index: 2, hops: vec![2, 1, node_id] },
-        session_id,
-        pack_type: PacketType::Nack(nack),
-    };
+    // let nack = Packet {
+    //     routing_header: SourceRoutingHeader { hop_index: 2, hops: vec![2, 1, node_id] },
+    //     session_id,
+    //     pack_type: PacketType::Nack(nack),
+    // };
 
-    listener_to_transmitter_tx.send(nack).expect("Listener cannot communicate with transmitter");
+    let command = TransmitterInternalCommand::ProcessNack { session_id, nack, source: 2 };
+
+    listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     let event = simulation_controller_rx.recv().unwrap();
     assert!(matches!(event, NodeEvent::KnownNetworkGraph(_)));
@@ -435,15 +462,22 @@ fn check_nack_processing() {
         fragment_index: 0,
         nack_type: NackType::Dropped,
     };
-    let dropped = Packet {
-        routing_header: SourceRoutingHeader {
-            hop_index: 1,
-            hops: vec![1, node_id],
-        },
+    // let dropped = Packet {
+    //     routing_header: SourceRoutingHeader {
+    //         hop_index: 1,
+    //         hops: vec![1, node_id],
+    //     },
+    //     session_id,
+    //     pack_type: PacketType::Nack(dropped),
+    // };
+
+    let command = TransmitterInternalCommand::ProcessNack {
         session_id,
-        pack_type: PacketType::Nack(dropped),
+        nack: dropped,
+        source: 1,
     };
-    listener_to_transmitter_tx.send(dropped).expect("Listener cannot communicate with transmitter");
+
+    listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     let expected = received.clone();
     let received = drone_1_rx.recv().unwrap();

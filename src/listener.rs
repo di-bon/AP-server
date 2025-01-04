@@ -12,6 +12,7 @@ use wg_2024::network::NodeId;
 use wg_2024::packet::{Fragment, Nack, NackType, Packet, PacketType};
 use messages::MessageUtilities;
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
+use crate::transmitter::TransmitterInternalCommand;
 
 pub enum ListenerCommand {
     Quit,
@@ -21,7 +22,7 @@ pub enum ListenerCommand {
 pub struct Listener {
     node_id: NodeId,
     // listener -> transmitter
-    transmitter_tx: Sender<Packet>, // this should only transmit packets of all types but PacketType::MsgFragment(Fragment)
+    transmitter_tx: Sender<TransmitterInternalCommand>, // this should only transmit packets of all types but PacketType::MsgFragment(Fragment)
     // transmitter -> listener
     transmitter_rx: Receiver<Packet>, // internal channel for error propagation
     // se -> server_logic
@@ -43,7 +44,7 @@ impl PartialEq for Listener {
 impl Listener {
     pub fn new(
         node_id: NodeId,
-        transmitter_tx: Sender<Packet>,
+        transmitter_tx: Sender<TransmitterInternalCommand>,
         transmitter_rx: Receiver<Packet>,
         server_logic_tx: Sender<Message>,
         drones_rx: Receiver<Packet>,
@@ -80,6 +81,8 @@ impl Listener {
                         }
                     }
                 },
+                // TODO: check if this can be removed
+                /*
                 recv(self.transmitter_rx) -> packet => {
                     match packet {
                         Ok(packet) => {
@@ -90,13 +93,14 @@ impl Listener {
                             }
                             // this kind of packets (ACKs, NACKs, FloodRequest, FloodResponse) should be directly
                             // forwarded to transmitter to be processed
-                            self.forward_packet_to_transmitter(packet);
+                            self.send_command_to_transmitter(packet);
                         },
                         Err(err) => {
                             panic!("Listener cannot receive packets from internal transmitter channel");
                         }
                     }
                 },
+                 */
                 recv(self.command_rx) -> command => {
                     if let Ok(command) = command {
                         match command {
@@ -154,12 +158,20 @@ impl Listener {
                         fragment_index: fragment.fragment_index,
                         nack_type: NackType::UnexpectedRecipient(self.node_id),
                     };
-                    let nack = Packet {
-                        routing_header: Default::default(),
+                    // let nack = Packet {
+                    //     routing_header: Default::default(),
+                    //     session_id,
+                    //     pack_type: PacketType::Nack(nack),
+                    // };
+
+                    let source = packet.routing_header.source().expect("No source found"); // TODO: update this
+
+                    let command = TransmitterInternalCommand::ProcessNack {
                         session_id,
-                        pack_type: PacketType::Nack(nack),
+                        nack,
+                        source,
                     };
-                    match self.transmitter_tx.send(nack) {
+                    match self.transmitter_tx.send(command) {
                         Ok(()) => {
                             log::info!("Send nack packet (UnexpectedRecipient) for fragment {} with session_id {session_id}", fragment.fragment_index);
                         }
@@ -173,7 +185,9 @@ impl Listener {
 
                 // this communication starts the ACK generation for the received fragment.
                 // the logic is handled by the transmitter
-                self.forward_packet_to_transmitter(packet.clone());
+                let source = packet.routing_header.source().unwrap(); // TODO: write better code for this
+                let command = TransmitterInternalCommand::SendAckFor { session_id: packet.session_id, fragment_index: fragment.fragment_index, destination: source };
+                self.send_command_to_transmitter(command);
 
                 /*
                 match self.transmitter_tx.send(packet.clone()) {
@@ -218,12 +232,44 @@ impl Listener {
                     }
                 }
             }
-            PacketType::Nack(_)
-            | PacketType::Ack(_)
-            | PacketType::FloodRequest(_)
-            | PacketType::FloodResponse(_) => {
-                log::info!("Forwarding a not message fragment to transmitter");
-                self.forward_packet_to_transmitter(packet);
+            PacketType::Nack(nack) => {
+                let source = match packet.routing_header.source() {
+                    Some(source) => source,
+                    None => {
+                        log::error!("Received a packet with no source");
+                        panic!("Received a packet with no source");
+                    }
+                };
+
+                let command = TransmitterInternalCommand::ProcessNack {
+                    session_id: packet.session_id,
+                    nack,
+                    source,
+                };
+                self.send_command_to_transmitter(command);
+            }
+            PacketType::Ack(ack) => {
+                let source = match packet.routing_header.source() {
+                    Some(source) => source,
+                    None => {
+                        log::error!("Received a packet with no source");
+                        panic!("Received a packet with no source");
+                    }
+                };
+
+                let command = TransmitterInternalCommand::ForwardAckTo {
+                    session_id: packet.session_id,
+                    ack,
+                };
+                self.send_command_to_transmitter(command);
+            }
+            PacketType::FloodRequest(flood_request) => {
+                let command = TransmitterInternalCommand::ProcessFloodRequest(flood_request);
+                self.send_command_to_transmitter(command);
+            }
+            PacketType::FloodResponse(flood_response) => {
+                let command = TransmitterInternalCommand::ProcessFloodResponse(flood_response);
+                self.send_command_to_transmitter(command);
             }
         }
     }
@@ -231,8 +277,8 @@ impl Listener {
     /// Forwards a `Packet` to `Transmitter`
     /// If a `PacketType::MsgFragment` is forwarded, the relative `ACK` will be generated and sent
     /// If another `PacketType` is forwarded, the `Transmitter` will update the network graph accordingly
-    fn forward_packet_to_transmitter(&self, packet: Packet) {
-        match self.transmitter_tx.send(packet) {
+    fn send_command_to_transmitter(&self, command: TransmitterInternalCommand) {
+        match self.transmitter_tx.send(command) {
             Ok(()) => {
                 log::info!("Packet successfully forwarded to transmitter");
             }
@@ -264,22 +310,22 @@ mod tests {
     ) -> (
         Listener,
         Sender<Packet>,
-        Receiver<Packet>,
+        Receiver<TransmitterInternalCommand>,
         Receiver<Message>,
         Sender<ListenerCommand>,
         Sender<Packet>,
         Receiver<NodeEvent>,
     ) {
         let (internal_transmitter_to_listener_tx, internal_transmitter_to_listener_rx) =
-            unbounded::<Packet>();
+            unbounded();
         let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) =
-            unbounded::<Packet>();
+            unbounded();
         let (internal_listener_to_server_logic_tx, internal_listener_to_server_logic_rx) =
-            unbounded::<Message>();
-        let (listener_commands_tx, listener_commands_rx) = unbounded::<ListenerCommand>();
-        let (listener_public_tx, listener_public_rx) = unbounded::<Packet>();
+            unbounded();
+        let (listener_commands_tx, listener_commands_rx) = unbounded();
+        let (listener_public_tx, listener_public_rx) = unbounded();
 
-        let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
+        let (simulation_controller_tx, simulation_controller_rx) = unbounded();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
@@ -316,7 +362,8 @@ mod tests {
             simulation_controller_rx,
         ) = create_listener_and_channels(1);
 
-        let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
+        let (transmitter_tx, transmitter_rx) = unbounded::<TransmitterInternalCommand>();
+        let (transmitter_tx_2, transmitter_rx_2) = unbounded();
         let (drones_tx, drones_rx) = unbounded::<Packet>();
         let (server_logic_tx, _server_logic_rx) = unbounded::<Message>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
@@ -329,7 +376,7 @@ mod tests {
             transmitter_tx,
             server_logic_tx,
             drones_rx,
-            transmitter_rx,
+            transmitter_rx: transmitter_rx_2,
             command_rx,
             simulation_controller_notifier,
             storers: Default::default(),
@@ -350,7 +397,8 @@ mod tests {
             listener_public_tx,
             simulation_controller_rx,
         ) = create_listener_and_channels(1);
-        let (transmitter_tx, transmitter_rx) = unbounded::<Packet>();
+        let (transmitter_tx, transmitter_rx) = unbounded();
+        let (transmitter_tx_2, transmitter_rx) = unbounded();
         let (drones_tx, drones_rx) = unbounded::<Packet>();
         let (server_logic_tx, _server_logic_rx) = unbounded::<Message>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
@@ -429,37 +477,17 @@ mod tests {
             simulation_controller_rx,
         ) = create_listener_and_channels(1);
 
-        let packet = Packet {
-            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
-            routing_header: SourceRoutingHeader {
-                hop_index: 0,
-                hops: vec![],
-            },
+        let command = TransmitterInternalCommand::ForwardAckTo {
             session_id: 0,
+            ack: Ack { fragment_index: 0 },
         };
 
-        listener.forward_packet_to_transmitter(packet);
+        let expected = command.clone();
 
-        let expected = Packet {
-            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
-            routing_header: SourceRoutingHeader {
-                hop_index: 0,
-                hops: vec![],
-            },
-            session_id: 0,
-        };
+        listener.send_command_to_transmitter(command);
 
-        select! {
-            recv(internal_listener_to_transmitter_rx) -> packet => {
-                if let Ok(packet) = packet {
-                    assert_eq!(packet, expected);
-                    return;
-                } else {
-                    assert!(false);
-                }
-            }
-        }
-        assert!(false);
+        let received = internal_listener_to_transmitter_rx.recv().unwrap();
+        assert_eq!(received, expected);
     }
 
     #[test]
@@ -519,7 +547,7 @@ mod tests {
     #[timeout(2000)]
     fn receive_ack() {
         let (
-            listener,
+            mut listener,
             _internal_transmitter_to_listener_tx,
             internal_listener_to_transmitter_rx,
             _internal_listener_to_server_logic_rx,
@@ -528,26 +556,28 @@ mod tests {
             _simulation_controller_rx,
         ) = create_listener_and_channels(1);
 
-        let listener = Arc::new(Mutex::new(listener));
-        let listener_clone = Arc::clone(&listener);
-
-        let _ = thread::spawn(move || {
-            let mut listener = listener_clone.lock().unwrap();
+        let handle = thread::spawn(move || {
             listener.run()
         });
 
         let ack = Ack { fragment_index: 0 };
+
+        let expected = TransmitterInternalCommand::ForwardAckTo {
+            session_id: 0,
+            ack: ack.clone(),
+        };
+
         let ack = Packet {
-            routing_header: Default::default(),
+            routing_header: SourceRoutingHeader { hop_index: 1, hops: vec![5, 1] } ,
             session_id: 0,
             pack_type: PacketType::Ack(ack),
         };
 
-        let _ = listener_public_tx.send(ack.clone());
+        let _ = listener_public_tx.send(ack);
 
         let received = internal_listener_to_transmitter_rx.recv().unwrap();
 
-        assert_eq!(received, ack);
+        assert_eq!(received, expected);
     }
 
     #[test]
@@ -575,6 +605,13 @@ mod tests {
             fragment_index: 0,
             nack_type: NackType::ErrorInRouting(1),
         };
+
+        let expected = TransmitterInternalCommand::ProcessNack {
+            session_id: 0,
+            nack: nack.clone(),
+            source: 0,
+        };
+
         let nack = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
@@ -584,11 +621,11 @@ mod tests {
             pack_type: PacketType::Nack(nack),
         };
 
-        let _ = listener_public_tx.send(nack.clone());
+        let _ = listener_public_tx.send(nack);
 
         let received = internal_listener_to_transmitter_rx.recv().unwrap();
 
-        assert_eq!(received, nack);
+        assert_eq!(received, expected);
     }
 
     #[test]
@@ -617,6 +654,9 @@ mod tests {
             initiator_id: 5,
             path_trace: vec![(10, NodeType::Client), (4, NodeType::Drone)],
         };
+
+        let expected = TransmitterInternalCommand::ProcessFloodRequest (flood_request.clone());
+
         let flood_request = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
@@ -626,11 +666,11 @@ mod tests {
             pack_type: PacketType::FloodRequest(flood_request),
         };
 
-        let _ = listener_public_tx.send(flood_request.clone());
+        let _ = listener_public_tx.send(flood_request);
 
         let received = internal_listener_to_transmitter_rx.recv().unwrap();
 
-        assert_eq!(received, flood_request);
+        assert_eq!(received, expected);
     }
 
     #[test]
@@ -658,6 +698,9 @@ mod tests {
             flood_id: 10,
             path_trace: vec![(10, NodeType::Client), (4, NodeType::Drone)],
         };
+
+        let expected = TransmitterInternalCommand::ProcessFloodResponse(flood_response.clone());
+
         let flood_response = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
@@ -671,7 +714,7 @@ mod tests {
 
         let received = internal_listener_to_transmitter_rx.recv().unwrap();
 
-        assert_eq!(received, flood_response);
+        assert_eq!(received, expected);
     }
 
     #[test]
@@ -713,11 +756,17 @@ mod tests {
                 pack_type: PacketType::MsgFragment(fragment.clone()),
             };
 
-            let _ = listener_public_tx.send(packet.clone());
+            let expected = TransmitterInternalCommand::SendAckFor {
+                session_id: 0,
+                fragment_index: fragment.fragment_index,
+                destination: 0,
+            };
+
+            let _ = listener_public_tx.send(packet);
 
             let received = internal_listener_to_transmitter_rx.recv().unwrap();
 
-            assert_eq!(received, packet);
+            assert_eq!(received, expected);
         }
 
         let _ = listener_commands_tx.send(ListenerCommand::Quit);

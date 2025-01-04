@@ -15,7 +15,7 @@ use wg_2024::packet::{NodeType, Packet};
 use crate::listener::{Listener, ListenerCommand};
 use crate::server_logic::ServerLogic;
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
-use crate::transmitter::{Transmitter, TransmitterCommand};
+use crate::transmitter::{Transmitter, TransmitterInternalCommand, TransmitterUserCommand};
 
 mod transmitter;
 mod listener;
@@ -42,7 +42,7 @@ impl NullPointerDibServer {
         simulation_controller_tx: Sender<NodeEvent>,
     ) -> Self {
         let (internal_transmitter_to_listener_tx, internal_transmitter_to_listener_rx) = unbounded::<Packet>();
-        let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded::<Packet>();
+        let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded::<TransmitterInternalCommand>();
         let (internal_listener_to_server_logic_tx, internal_listener_to_server_logic_rx) = unbounded::<Message>();
         let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded::<(NodeId, Message)>();
         let (listener_commands_tx, listener_commands_rx) = unbounded::<ListenerCommand>();
@@ -50,7 +50,7 @@ impl NullPointerDibServer {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let (transmitter_command_tx, transmitter_command_rx) = unbounded::<TransmitterCommand>();
+        let (transmitter_command_tx, transmitter_command_rx) = unbounded::<TransmitterUserCommand>();
 
         let transmitter = Transmitter::new(
             node_id,

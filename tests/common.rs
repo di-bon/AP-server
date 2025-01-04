@@ -5,16 +5,16 @@ use messages::Message;
 use messages::node_event::NodeEvent;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
-use ap_server::test_utils::{Listener, ListenerCommand, SimulationControllerNotifier, Transmitter, TransmitterCommand};
+use ap_server::test_utils::{Listener, ListenerCommand, SimulationControllerNotifier, Transmitter, TransmitterInternalCommand, TransmitterUserCommand};
 
 pub fn create_transmitter(
     node_id: NodeId,
     node_type: NodeType,
     connected_drones: HashMap<NodeId, Sender<Packet>>,
     simulation_controller_notifier: Arc<SimulationControllerNotifier>,
-) -> (Transmitter, Sender<Packet>, Receiver<Packet>, Sender<(NodeId, Message)>, Sender<TransmitterCommand>) {
+) -> (Transmitter, Sender<TransmitterInternalCommand>, Receiver<Packet>, Sender<(NodeId, Message)>, Sender<TransmitterUserCommand>) {
 
-    let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded::<Packet>();
+    let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded::<TransmitterInternalCommand>();
     let (transmitter_to_listener_tx, transmitter_to_listener_rx) = unbounded::<Packet>();
     let (logic_to_transmitter_tx, logic_to_transmitter_rx) = unbounded();
     let (transmitter_command_tx, transmitter_command_rx) = unbounded();
@@ -42,7 +42,7 @@ pub fn create_simulation_controller_notifier() -> (Arc<SimulationControllerNotif
     (simulation_controller_notifier, simulation_controller_rx)
 }
 
-pub fn create_listener(node_id: NodeId, simulation_controller_notifier: Arc<SimulationControllerNotifier>) -> (Listener, Receiver<Packet>, Sender<Packet>, Receiver<Message>, Sender<Packet>, Sender<ListenerCommand>) {
+pub fn create_listener(node_id: NodeId, simulation_controller_notifier: Arc<SimulationControllerNotifier>) -> (Listener, Receiver<TransmitterInternalCommand>, Sender<Packet>, Receiver<Message>, Sender<Packet>, Sender<ListenerCommand>) {
     let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded();
     let (transmitter_to_listener_tx, transmitter_to_listener_rx) = unbounded();
     let (listener_to_logic_tx, listener_to_logic_rx) = unbounded();
