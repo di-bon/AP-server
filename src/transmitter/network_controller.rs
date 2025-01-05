@@ -128,7 +128,8 @@ mod tests {
     use std::collections::HashMap;
     use crossbeam_channel::{unbounded, Sender};
     use ntest::timeout;
-    use wg_2024::packet::{Ack, Nack};
+    use wg_2024::network::SourceRoutingHeader;
+    use wg_2024::packet::{Ack, Nack, Packet, PacketType};
     use crate::simulation_controller_notifier::SimulationControllerNotifier;
     use super::*;
 

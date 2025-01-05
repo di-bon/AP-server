@@ -273,7 +273,7 @@ mod tests {
     use std::sync::{Arc, Mutex, RwLock};
     use std::thread;
     use std::time::Duration;
-    use messages::{RequestType, TextRequest};
+    use messages::{MessageType, RequestType, TextRequest};
     use wg_2024::network::SourceRoutingHeader;
     use wg_2024::packet::{
         Ack, FloodRequest, FloodResponse, Nack, NackType, NodeType, Packet, PacketType,
