@@ -146,7 +146,7 @@ impl Listener {
 
                     let nack = Nack {
                         fragment_index: fragment.fragment_index,
-                        nack_type: nack_type,
+                        nack_type,
                     };
 
                     let command = TransmitterInternalCommand::SendNack {
