@@ -7,6 +7,7 @@ pub enum ServerLogicCommand {
 }
 
 pub struct ServerLogic {
+    node_id: NodeId,
     server_logic_to_transmitter_tx: Sender<(NodeId, Message)>,
     listener_to_server_logic_rx: Receiver<Message>,
     command_rx: Receiver<ServerLogicCommand>,
@@ -14,10 +15,14 @@ pub struct ServerLogic {
 
 impl ServerLogic {
     pub fn new(
-        server_logic_to_transmitter_tx: Sender<(NodeId, Message)>,
-        listener_to_server_logic_rx: Receiver<Message>,
+        _server_logic_to_transmitter_tx: Sender<(NodeId, Message)>,
+        _listener_to_server_logic_rx: Receiver<Message>,
     ) -> Self {
         todo!()
+    }
+
+    pub fn get_node_id(&self) -> NodeId {
+        self.node_id
     }
 
     pub fn run(&mut self) {
@@ -46,8 +51,8 @@ impl ServerLogic {
     }
 
     fn process_message(&self, message: &Message) {
-        let session_id = message.session_id;
-        let source_id = message.source_id;
+        let _session_id = message.session_id;
+        let _source_id = message.source_id;
         match &message.content {
             MessageType::Request(request_type) => {
                 self.process_request(request_type);
@@ -60,13 +65,13 @@ impl ServerLogic {
 
     fn process_request(&self, request_type: &RequestType) {
         match request_type {
-            RequestType::TextRequest(text_request) => {
+            RequestType::TextRequest(_text_request) => {
                 todo!()
             }
-            RequestType::MediaRequest(media_request) => {
+            RequestType::MediaRequest(_media_request) => {
                 todo!()
             }
-            RequestType::ChatRequest(chat_request) => {
+            RequestType::ChatRequest(_chat_request) => {
                 todo!()
             }
             RequestType::DiscoveryRequest(()) => {
@@ -77,16 +82,16 @@ impl ServerLogic {
 
     fn process_response(&self, response_type: &ResponseType) {
         match response_type {
-            ResponseType::TextResponse(text_response) => {
+            ResponseType::TextResponse(_text_response) => {
                 todo!()
             }
-            ResponseType::MediaResponse(media_response) => {
+            ResponseType::MediaResponse(_media_response) => {
                 todo!()
             }
-            ResponseType::ChatResponse(chat_response) => {
+            ResponseType::ChatResponse(_chat_response) => {
                 todo!()
             }
-            ResponseType::DiscoveryResponse(server_type) => {
+            ResponseType::DiscoveryResponse(_server_type) => {
                 todo!()
             }
         }

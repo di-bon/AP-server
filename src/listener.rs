@@ -60,6 +60,10 @@ impl Listener {
         }
     }
 
+    pub fn get_node_id(&self) -> NodeId {
+        self.node_id
+    }
+
     /// Makes the Listener work
     /// # Panic
     /// Panics if
@@ -237,9 +241,9 @@ impl Listener {
     /// # Panic
     /// Panics if the transmission to `Logic` fails
     fn send_message_to_logic(&self, message: Message) {
-        match self.listener_to_logic_tx.send(message.clone()) {
+        match self.listener_to_logic_tx.send(message) {
             Ok(()) => {
-                log::info!("Listener successfully forwarded message {message:?} to server logic");
+                log::info!("Listener successfully forwarded a message to server logic");
             },
             Err(SendError(message)) => {
                 panic!("Listener cannot forward message {message:?} to server logic");
@@ -251,13 +255,13 @@ impl Listener {
     /// # Panic
     /// Panics if there is no source in the given `SourceRoutingHeader`
     fn get_source(routing_header: &SourceRoutingHeader) -> NodeId {
-        match routing_header.source() {
-            Some(source) => source,
-            None => {
-                log::error!("Received a packet with no source");
-                panic!("Received a packet with no source");
-            }
+        if let Some(source) = routing_header.source() {
+            source
+        } else {
+            log::error!("Received a packet with no source");
+            panic!("Received a packet with no source");
         }
+
     }
 }
 

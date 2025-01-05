@@ -20,12 +20,12 @@ impl SimulationControllerNotifier {
         }
     }
 
-    /// Sends a NodeEvent into the channel shared with the simulation controller
+    /// Sends a `NodeEvent` into the channel shared with the simulation controller
     /// # Panic
     /// Panics if the transmission fails
     pub fn send_event(&self, node_event: NodeEvent) {
-        match self.simulation_controller_tx.send(node_event.clone()) {
-            Ok(()) => log::info!("Node event {node_event:?} sent"),
+        match self.simulation_controller_tx.send(node_event) {
+            Ok(()) => log::info!("Node event sent"),
             Err(err) => {
                 log::error!("Cannot send events to simulation controller");
                 panic!("Cannot send events to simulation controller");

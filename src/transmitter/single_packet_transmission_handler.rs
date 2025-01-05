@@ -11,7 +11,7 @@ use crate::transmitter::network_controller::NetworkController;
 /// A `TransmissionHandler` struct that will handle the fragmentation and packet creation, sending
 /// said packets to the gateway. All created packets will share the same `SourceRoutingHeader`,
 /// unless it gets updated using the `update_source_routing_header` method
-pub(super) struct SinglePacketTransmissionHandler {
+pub struct SinglePacketTransmissionHandler {
     packet_type: PacketType,
     source_id: NodeId,
     session_id: u64,

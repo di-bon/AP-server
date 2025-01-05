@@ -107,6 +107,10 @@ impl Transmitter {
         }
     }
 
+    pub fn get_node_id(&self) -> NodeId {
+        self.node_id
+    }
+
     pub fn run(&mut self) {
         // when run is called, transmitter should instantaneously flood the network to discover routes
         loop {
