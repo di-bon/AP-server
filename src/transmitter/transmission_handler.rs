@@ -185,8 +185,7 @@ mod tests {
         let (drone_tx, drone_rx) = unbounded::<Packet>();
         connected_drones.insert(1, drone_tx);
 
-        let (transmitter_to_listener_tx, transmitter_to_listener_rx) = unbounded::<Packet>();
-        let gateway = Gateway::new(0, connected_drones, transmitter_to_listener_tx, simulation_controller_notifier.clone());
+        let gateway = Gateway::new(0, connected_drones, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let (command_tx, command_rx) = unbounded::<TransmissionHandlerCommand>();

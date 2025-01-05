@@ -27,7 +27,6 @@ fn check_quit_command() -> thread::Result<()> {
 
     let (mut transmitter,
         listener_to_transmitter_tx,
-        transmitter_to_listener_rx,
         logic_to_transmitter_tx,
         transmitter_command_tx) = create_transmitter(node_id, node_type, connected_drones, simulation_controller_notifier.clone());
 
@@ -54,7 +53,6 @@ fn check_message_handling_and_forwarding() {
 
     let (mut transmitter,
         listener_to_transmitter_tx,
-        transmitter_to_listener_rx,
         logic_to_transmitter_tx,
         transmitter_command_tx) = create_transmitter(node_id, node_type, connected_drones, simulation_controller_notifier.clone());
 
@@ -173,7 +171,6 @@ fn check_unexpected_ack() {
 
     let (mut transmitter,
         listener_to_transmitter_tx,
-        transmitter_to_listener_rx,
         logic_to_transmitter_tx,
         transmitter_command_tx) = create_transmitter(node_id, node_type, connected_drones, simulation_controller_notifier.clone());
 
@@ -251,7 +248,6 @@ fn check_flood_request_processing() {
 
     let (mut transmitter,
         listener_to_transmitter_tx,
-        transmitter_to_listener_rx,
         logic_to_transmitter_tx,
         transmitter_command_tx) = create_transmitter(node_id, node_type, connected_drones, simulation_controller_notifier.clone());
 
@@ -337,7 +333,6 @@ fn check_nack_processing() {
 
     let (mut transmitter,
         listener_to_transmitter_tx,
-        transmitter_to_listener_rx,
         logic_to_transmitter_tx,
         transmitter_command_tx) = create_transmitter(node_id, node_type, connected_drones, simulation_controller_notifier.clone());
 

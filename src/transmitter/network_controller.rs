@@ -46,11 +46,9 @@ impl NetworkController {
         let mut rng = rand::rng();
         let session_id: u64 = rng.random();
         let flood_id: u64 = rng.random();
-        let flood_request = Packet::new_flood_request(
-            SourceRoutingHeader::new(vec![], 0),
-            session_id,
-            FloodRequest::initialize(flood_id, self.node_id, self.node_type),
-        );
+
+        let flood_request = FloodRequest::initialize(flood_id, self.node_id, self.node_type);
+
         self.gateway.send_flood(flood_request);
     }
 
@@ -138,13 +136,12 @@ mod tests {
     fn initialize() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let (listener_tx, _listener_rx) = unbounded::<Packet>();
 
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(node_id, HashMap::new(), listener_tx, simulation_controller_notifier.clone());
+        let gateway = Gateway::new(node_id, HashMap::new(), simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let network_controller = NetworkController::new(node_id, node_type, gateway.clone(), simulation_controller_notifier.clone());
@@ -164,13 +161,12 @@ mod tests {
     fn update_from_error_in_routing() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let (listener_tx, _listener_rx) = unbounded::<Packet>();
 
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(node_id, HashMap::new(), listener_tx, simulation_controller_notifier.clone());
+        let gateway = Gateway::new(node_id, HashMap::new(), simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let mut network_controller = NetworkController::new(node_id, node_type, gateway, simulation_controller_notifier.clone());
@@ -240,13 +236,12 @@ mod tests {
     fn update_from_dropped() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let (listener_tx, _listener_rx) = unbounded::<Packet>();
 
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(node_id, HashMap::new(), listener_tx, simulation_controller_notifier.clone());
+        let gateway = Gateway::new(node_id, HashMap::new(), simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let mut network_controller = NetworkController::new(node_id, node_type, gateway, simulation_controller_notifier.clone());
@@ -297,7 +292,6 @@ mod tests {
     fn check_flood_network() {
         let node_id = 0;
         let node_type = NodeType::Server;
-        let (listener_tx, _listener_rx) = unbounded::<Packet>();
 
         let mut connected_drones:HashMap<NodeId, Sender<Packet>> = HashMap::new();
 
@@ -313,7 +307,7 @@ mod tests {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(node_id, connected_drones, listener_tx, simulation_controller_notifier.clone());
+        let gateway = Gateway::new(node_id, connected_drones, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let mut network_controller = NetworkController::new(node_id, node_type, gateway, simulation_controller_notifier.clone());
@@ -354,13 +348,12 @@ mod tests {
         let node_type = NodeType::Server;
 
         let connected_drones = HashMap::new();
-        let (gateway_to_listener_tx, gateway_to_listener_rx) = unbounded::<Packet>();
 
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(node_id, connected_drones, gateway_to_listener_tx, simulation_controller_notifier.clone());
+        let gateway = Gateway::new(node_id, connected_drones, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let network_controller = NetworkController::new(node_id, node_type, gateway, simulation_controller_notifier.clone());

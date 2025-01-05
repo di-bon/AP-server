@@ -19,10 +19,7 @@ impl Storer {
     /// Creates a new instance of Storer from a Fragment, setting the fragment_count
     pub(super) fn new_from_fragment(fragment: Fragment) -> Self {
         let fragment_count = fragment.total_n_fragments as usize;
-        let mut result = Self {
-            fragment_count,
-            fragments: Default::default(),
-        };
+        let mut result = Self::new(fragment_count);
         result.insert_fragment(fragment);
         result
     }
@@ -30,7 +27,7 @@ impl Storer {
     /// Inserts a fragment into Storer
     pub(super) fn insert_fragment(&mut self, fragment: Fragment) {
         if (fragment.fragment_index as usize) >= self.fragment_count {
-            // TODO: check if there is an alternative to panic maybe?
+            log::error!("fragment index {} out of bounds", fragment.fragment_index);
             panic!("fragment index {} out of bounds", fragment.fragment_index);
         }
         log::info!("Storing fragment {fragment}");

@@ -8,7 +8,7 @@ use messages::node_event::NodeEvent;
 use std::collections::HashMap;
 use std::sync::Arc;
 use messages::{Message, MessageType};
-use wg_2024::network::NodeId;
+use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Fragment, Nack, NackType, Packet, PacketType};
 use messages::MessageUtilities;
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
@@ -22,17 +22,15 @@ pub enum ListenerCommand {
 pub struct Listener {
     node_id: NodeId,
     // listener -> transmitter
-    transmitter_tx: Sender<TransmitterInternalCommand>, // this should only transmit packets of all types but PacketType::MsgFragment(Fragment)
-    // transmitter -> listener
-    transmitter_rx: Receiver<Packet>, // internal channel for error propagation
+    listener_to_transmitter_tx: Sender<TransmitterInternalCommand>, // this should only transmit packets of all types but PacketType::MsgFragment(Fragment)
     // se -> server_logic
-    server_logic_tx: Sender<Message>, // this should only transmit reassembled messages -> its type is high level message, not packet!
+    listener_to_logic_tx: Sender<Message>, // this should only transmit reassembled messages -> its type is high level message, not packet!
     // drone(s) -> listener
-    drones_rx: Receiver<Packet>,
+    drones_to_listener_rx: Receiver<Packet>,
     command_rx: Receiver<ListenerCommand>,
     simulation_controller_notifier: Arc<SimulationControllerNotifier>,
     // HashMap containing all the pairs (session_id, Storer)
-    storers: HashMap<u64, Storer>,
+    storers: HashMap<(NodeId, u64), Storer>, // associates a tuple of (source, session_id) to a Storer
 }
 
 impl PartialEq for Listener {
@@ -44,19 +42,17 @@ impl PartialEq for Listener {
 impl Listener {
     pub fn new(
         node_id: NodeId,
-        transmitter_tx: Sender<TransmitterInternalCommand>,
-        transmitter_rx: Receiver<Packet>,
-        server_logic_tx: Sender<Message>,
-        drones_rx: Receiver<Packet>,
+        listener_to_transmitter_tx: Sender<TransmitterInternalCommand>,
+        listener_to_logic_tx: Sender<Message>,
+        drones_to_listener_rx: Receiver<Packet>,
         command_rx: Receiver<ListenerCommand>,
         simulation_controller_notifier: Arc<SimulationControllerNotifier>,
     ) -> Self {
         Self {
             node_id,
-            transmitter_tx,
-            transmitter_rx,
-            server_logic_tx,
-            drones_rx,
+            listener_to_transmitter_tx,
+            listener_to_logic_tx,
+            drones_to_listener_rx,
             command_rx,
             simulation_controller_notifier,
             storers: HashMap::default(),
@@ -66,14 +62,10 @@ impl Listener {
     pub fn run(&mut self) {
         loop {
             select! {
-                recv(self.drones_rx) -> packet => {
+                recv(self.drones_to_listener_rx) -> packet => {
                     match packet {
                         Ok(packet) => {
                             log::info!("Received packet {packet}");
-
-                            let event = NodeEvent::PacketReceived(packet.clone());
-                            self.simulation_controller_notifier.send_event(event);
-
                             self.process_drone_packet(packet);
                         },
                         Err(err) => {
@@ -81,26 +73,6 @@ impl Listener {
                         }
                     }
                 },
-                // TODO: check if this can be removed
-                /*
-                recv(self.transmitter_rx) -> packet => {
-                    match packet {
-                        Ok(packet) => {
-                            log::info!("Received packet {packet}");
-                            if matches!(packet.pack_type, PacketType::MsgFragment(_)) {
-                                log::warn!("Received a message fragment from self.tx_receiver. This should not happen. Ignoring fragment");
-                                continue;
-                            }
-                            // this kind of packets (ACKs, NACKs, FloodRequest, FloodResponse) should be directly
-                            // forwarded to transmitter to be processed
-                            self.send_command_to_transmitter(packet);
-                        },
-                        Err(err) => {
-                            panic!("Listener cannot receive packets from internal transmitter channel");
-                        }
-                    }
-                },
-                 */
                 recv(self.command_rx) -> command => {
                     if let Ok(command) = command {
                         match command {
@@ -113,14 +85,14 @@ impl Listener {
     }
 
     /// Checks the readiness for the `Storer` associated to the `session_id`. Returns `None` if there is no `Storer` associated to the given `session_id`
-    fn check_storer(&self, session_id: u64) -> Option<bool> {
-        let storer = self.storers.get(&session_id)?;
+    fn check_storer(&self, key: (NodeId, u64)) -> Option<bool> {
+        let storer = self.storers.get(&key)?;
         Some(storer.is_ready())
     }
 
-    /// Stores a `Fragment` into the `Storer` for the given `session_id`
-    fn store_fragment(&mut self, session_id: u64, fragment: Fragment) {
-        let storer = self.storers.get_mut(&session_id);
+    /// Stores a `Fragment` into the `Storer` for the given `(NodeId, session_id)`
+    fn store_fragment(&mut self, key: (NodeId, u64), fragment: Fragment) {
+        let storer = self.storers.get_mut(&key);
         match storer {
             Some(storer) => {
                 log::info!("Storing fragment {fragment} into storer");
@@ -129,138 +101,103 @@ impl Listener {
             None => {
                 log::info!("Creating a new storer for fragment {fragment}");
                 let storer = Storer::new_from_fragment(fragment);
-                self.storers.insert(session_id, storer);
+                self.storers.insert(key, storer);
             }
         }
     }
 
     /// Processes a `Packet` received from the connected drones based on the `PacketType`
     fn process_drone_packet(&mut self, packet: Packet) {
+        // notify simulation controller
+        let event = NodeEvent::PacketReceived(packet.clone());
+        self.simulation_controller_notifier.send_event(event);
+
         match packet.pack_type {
             PacketType::MsgFragment(ref fragment) => {
                 log::info!("Processing a message fragment");
                 let session_id = packet.session_id;
 
+                let source = Self::get_source(&packet.routing_header);
+
                 let current_hop_id = match packet.routing_header.current_hop() {
                     Some(id) => id,
                     None => {
-                        // TODO: don't panic, send nack back and continue?
-                        panic!("Malformed routing header")
+                        log::error!("Received a packet with hop_index out of bounds");
+                        panic!("Received a packet with hop_index out of bounds");
                     }
                 };
 
                 let wrong_destination = current_hop_id != self.node_id;
 
                 if !packet.routing_header.is_last_hop() || wrong_destination {
-                    // TODO: review this part: transmitter does NOT process UnexpectedRecipient NACKs, so it is useless to send them
-                    // maybe just ignore packet?
+                    let nack_type = NackType::UnexpectedRecipient(self.node_id);
+
                     let nack = Nack {
                         fragment_index: fragment.fragment_index,
-                        nack_type: NackType::UnexpectedRecipient(self.node_id),
+                        nack_type: nack_type.clone(),
                     };
-                    // let nack = Packet {
-                    //     routing_header: Default::default(),
-                    //     session_id,
-                    //     pack_type: PacketType::Nack(nack),
-                    // };
-
-                    let source = packet.routing_header.source().expect("No source found"); // TODO: update this
 
                     let command = TransmitterInternalCommand::ProcessNack {
                         session_id,
                         nack,
                         source,
                     };
-                    match self.transmitter_tx.send(command) {
-                        Ok(()) => {
-                            log::info!("Send nack packet (UnexpectedRecipient) for fragment {} with session_id {session_id}", fragment.fragment_index);
-                        }
-                        Err(err) => {
-                            log::warn!("Cannot communicate with transmitter to send NACK packet");
-                            panic!("Listener cannot communicate with transmitter using the internal channel");
-                        }
-                    }
+
+                    self.send_command_to_transmitter(command);
+
                     return;
                 }
 
-                // this communication starts the ACK generation for the received fragment.
-                // the logic is handled by the transmitter
-                let source = packet.routing_header.source().unwrap(); // TODO: write better code for this
-                let command = TransmitterInternalCommand::SendAckFor { session_id: packet.session_id, fragment_index: fragment.fragment_index, destination: source };
+                let command = TransmitterInternalCommand::SendAckFor { session_id, fragment_index: fragment.fragment_index, destination: source };
                 self.send_command_to_transmitter(command);
 
-                /*
-                match self.transmitter_tx.send(packet.clone()) {
-                    Ok(()) => {
-                        log::info!("Fragment sent to transmitter to generate its ACK packet");
-                    }
-                    Err(err) => {
-                        log::warn!("Cannot communicate with transmitter to generate an ACK packet");
-                        panic!("Listener cannot communicate with transmitter using the internal channel");
-                    }
-                }
-                 */
+                let key = (source, session_id);
 
-                self.store_fragment(session_id, fragment.clone());
-                let storer = self.storers.get(&session_id);
-                match storer {
+                self.store_fragment(key, fragment.clone());
+
+                match self.storers.get(&key) {
                     Some(storer) => {
                         if storer.is_ready() {
                             log::info!(
                                 "Storer for session {session_id} is ready for message reassemble"
                             );
+
                             let fragments = storer.get_fragments();
                             let message = NaiveAssembler::reassemble(&fragments);
                             let message = String::from_utf8(message).unwrap();
                             let message: Message = MessageUtilities::from_string(message).unwrap();
-                            log::info!("Reassembled message in bytes: {message:?}");
-                            self.storers.remove(&session_id);
 
-                            match self.server_logic_tx.send(message.clone()) {
-                                Ok(()) => {
-                                    log::info!("Listener successfully forwarded message {message:?} to server logic");
-                                },
-                                Err(err) => {
-                                    panic!("Listener cannot forward messages to server logic");
-                                }
-                            }
+                            log::info!("Reassembled message in bytes: {message:?}");
+                            self.storers.remove(&key);
+
+                            self.send_message_to_logic(message);
                         }
                     }
                     None => {
-                        log::warn!("Storer for session {session_id} not found. At this point however it should exist");
+                        log::error!("Storer for session {session_id} not found. At this point however it should exist");
                         panic!("Storer for session {session_id} not found. At this point however it should exist");
                     }
                 }
-            }
+            },
             PacketType::Nack(nack) => {
-                let source = match packet.routing_header.source() {
-                    Some(source) => source,
-                    None => {
-                        log::error!("Received a packet with no source");
-                        panic!("Received a packet with no source");
-                    }
-                };
+                let source = Self::get_source(&packet.routing_header);
 
                 let command = TransmitterInternalCommand::ProcessNack {
                     session_id: packet.session_id,
                     nack,
                     source,
                 };
+
                 self.send_command_to_transmitter(command);
-            }
+            },
             PacketType::Ack(ack) => {
-                let source = match packet.routing_header.source() {
-                    Some(source) => source,
-                    None => {
-                        log::error!("Received a packet with no source");
-                        panic!("Received a packet with no source");
-                    }
-                };
+                let source = Self::get_source(&packet.routing_header);
 
                 let command = TransmitterInternalCommand::ForwardAckTo {
                     session_id: packet.session_id,
                     ack,
                 };
+
                 self.send_command_to_transmitter(command);
             }
             PacketType::FloodRequest(flood_request) => {
@@ -278,13 +215,34 @@ impl Listener {
     /// If a `PacketType::MsgFragment` is forwarded, the relative `ACK` will be generated and sent
     /// If another `PacketType` is forwarded, the `Transmitter` will update the network graph accordingly
     fn send_command_to_transmitter(&self, command: TransmitterInternalCommand) {
-        match self.transmitter_tx.send(command) {
+        match self.listener_to_transmitter_tx.send(command) {
             Ok(()) => {
                 log::info!("Packet successfully forwarded to transmitter");
             }
             Err(err) => {
                 log::warn!("Couldn't forward packet to transmitter");
                 panic!("Listener cannot send internal message to transmitter");
+            }
+        }
+    }
+
+    fn send_message_to_logic(&self, message: Message) {
+        match self.listener_to_logic_tx.send(message.clone()) {
+            Ok(()) => {
+                log::info!("Listener successfully forwarded message {message:?} to server logic");
+            },
+            Err(SendError(message)) => {
+                panic!("Listener cannot forward message {message:?} to server logic");
+            }
+        }
+    }
+
+    fn get_source(routing_header: &SourceRoutingHeader) -> NodeId {
+        match routing_header.source() {
+            Some(source) => source,
+            None => {
+                log::error!("Received a packet with no source");
+                panic!("Received a packet with no source");
             }
         }
     }
@@ -332,7 +290,6 @@ mod tests {
         let listener = Listener::new(
             node_id,
             internal_listener_to_transmitter_tx,
-            internal_transmitter_to_listener_rx,
             internal_listener_to_server_logic_tx,
             listener_public_rx,
             listener_commands_rx,
@@ -363,7 +320,6 @@ mod tests {
         ) = create_listener_and_channels(1);
 
         let (transmitter_tx, transmitter_rx) = unbounded::<TransmitterInternalCommand>();
-        let (transmitter_tx_2, transmitter_rx_2) = unbounded();
         let (drones_tx, drones_rx) = unbounded::<Packet>();
         let (server_logic_tx, _server_logic_rx) = unbounded::<Message>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
@@ -373,10 +329,9 @@ mod tests {
 
         let expected = Listener {
             node_id: 1,
-            transmitter_tx,
-            server_logic_tx,
-            drones_rx,
-            transmitter_rx: transmitter_rx_2,
+            listener_to_transmitter_tx: transmitter_tx,
+            listener_to_logic_tx: server_logic_tx,
+            drones_to_listener_rx: drones_rx,
             command_rx,
             simulation_controller_notifier,
             storers: Default::default(),
@@ -398,7 +353,6 @@ mod tests {
             simulation_controller_rx,
         ) = create_listener_and_channels(1);
         let (transmitter_tx, transmitter_rx) = unbounded();
-        let (transmitter_tx_2, transmitter_rx) = unbounded();
         let (drones_tx, drones_rx) = unbounded::<Packet>();
         let (server_logic_tx, _server_logic_rx) = unbounded::<Message>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
@@ -408,10 +362,9 @@ mod tests {
 
         let mut expected = Listener {
             node_id: 1,
-            transmitter_tx,
-            server_logic_tx,
-            drones_rx,
-            transmitter_rx,
+            listener_to_transmitter_tx: transmitter_tx,
+            listener_to_logic_tx: server_logic_tx,
+            drones_to_listener_rx: drones_rx,
             command_rx,
             simulation_controller_notifier,
             storers: Default::default(),
@@ -441,28 +394,30 @@ mod tests {
             },
         ];
 
-        assert_eq!(listener.check_storer(session_id), None);
+        let source: NodeId = 0;
+        let key = (source, session_id);
+        assert_eq!(listener.check_storer(key), None);
 
-        listener.store_fragment(session_id, fragments[0].clone());
+        listener.store_fragment(key, fragments[0].clone());
 
         let mut expected_storers = HashMap::new();
         let expected_storer = Storer::new_from_fragment(fragments[0].clone());
-        expected_storers.insert(session_id, expected_storer);
+        expected_storers.insert(key, expected_storer);
         expected.storers = expected_storers;
 
         assert_eq!(listener, expected);
-        assert_eq!(listener.check_storer(session_id), Some(false));
+        assert_eq!(listener.check_storer(key), Some(false));
 
-        listener.store_fragment(session_id, fragments[1].clone());
-        listener.store_fragment(session_id, fragments[2].clone());
+        listener.store_fragment(key, fragments[1].clone());
+        listener.store_fragment(key, fragments[2].clone());
 
-        let storer = expected.storers.get_mut(&session_id).unwrap();
+        let storer = expected.storers.get_mut(&key).unwrap();
         storer.insert_fragment(fragments[1].clone());
         storer.insert_fragment(fragments[2].clone());
 
         assert_eq!(listener, expected);
 
-        assert_eq!(listener.check_storer(session_id), Some(true));
+        assert_eq!(listener.check_storer(key), Some(true));
     }
 
     #[test]
@@ -535,7 +490,7 @@ mod tests {
         let listener = listener.lock().unwrap();
 
         assert_eq!(listener.storers.len(), 1);
-        let storer = listener.storers.get(&10).unwrap();
+        let storer = listener.storers.get(&(1, 10)).unwrap();
         assert!(!storer.is_ready());
 
         let fragments = storer.get_fragments();

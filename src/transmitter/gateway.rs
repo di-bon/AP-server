@@ -3,14 +3,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use messages::node_event::NodeEvent;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{FloodResponse, Nack, NackType, Packet, PacketType};
+use wg_2024::packet::{FloodRequest, FloodResponse, Nack, NackType, Packet, PacketType};
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
 
 #[derive(Debug)]
 pub struct Gateway {
     node_id: NodeId,
     neighbors: HashMap<NodeId, Sender<Packet>>,
-    listener_channel: Sender<Packet>,
     simulation_controller_notifier: Arc<SimulationControllerNotifier>,
 }
 
@@ -26,29 +25,25 @@ impl Gateway {
     pub fn new(
         node_id: NodeId,
         neighbors: HashMap<NodeId, Sender<Packet>>,
-        listener_channel: Sender<Packet>,
         simulation_controller_notifier: Arc<SimulationControllerNotifier>,
     ) -> Self {
         Self {
             node_id,
             neighbors,
-            listener_channel,
             simulation_controller_notifier
         }
     }
 
     /// Sends a Packet to every connected neighboring node
-    pub fn send_flood(&self, packet: Packet) {
-        if !matches!(packet.pack_type, PacketType::FloodRequest(_)) {
-            log::error!(
-                "Cannot flood the network with a packet of type {:?}",
-                packet.pack_type
-            );
-            panic!(
-                "Cannot flood the network with a packet of type {:?}",
-                packet.pack_type
-            );
-        }
+    pub fn send_flood(&self, flood_request: FloodRequest) {
+        let packet = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: vec![],
+            },
+            session_id: 0,
+            pack_type: PacketType::FloodRequest(flood_request),
+        };
 
         for (node_id, channel) in &self.neighbors {
             self.send_on_channel_checked(channel, packet.clone(), *node_id);
@@ -66,7 +61,8 @@ impl Gateway {
             Err(SendError(packet)) => {
                 let nack_type = NackType::ErrorInRouting(next_hop);
                 log::warn!("Error while sending packet {packet} to node {next_hop}: sending nack packet {nack_type:?}");
-                self.send_nack_packet_to_listener(packet, nack_type);
+                // self.send_nack_packet_to_listener(packet, nack_type);
+                // TODO: error propagation back to transmitter
             }
         }
     }
@@ -76,10 +72,11 @@ impl Gateway {
         let forward_to = match flood_response.path_trace.iter().nth(1) {
             Some((node_id, _node_type)) => *node_id,
             None => {
-                log::error!("Tried to send a FloodResponse with no next hop");
-                panic!("Tried to send a FloodResponse with no next hop");
+                log::error!("No next hop in path trace to forward back this FloodResponse");
+                panic!("No next hop in path trace to forward back this FloodResponse");
             }
         };
+
         let wrapper_packet = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
@@ -88,6 +85,7 @@ impl Gateway {
             session_id: 0, // TODO: default value
             pack_type: PacketType::FloodResponse(flood_response),
         };
+
         let channel = match self.neighbors.get(&forward_to) {
             Some(channel) => channel,
             None => {
@@ -95,6 +93,7 @@ impl Gateway {
                 panic!("No channel found to forward the flood response back to who sent it");
             }
         };
+
         self.send_on_channel_checked(channel, wrapper_packet, forward_to);
     }
 
@@ -105,7 +104,7 @@ impl Gateway {
             Some(next_hop) => next_hop,
             None => {
                 log::error!("No next hop for packet {packet}");
-                panic!("No next hop for current packet");
+                panic!("No next hop for packet {packet}");
             }
         };
 
@@ -114,10 +113,12 @@ impl Gateway {
         if let Some(channel) = self.neighbors.get(&next_hop) {
             self.send_on_channel_checked(channel, packet, next_hop);
         } else {
-            self.send_nack_packet_to_listener(packet, NackType::ErrorInRouting(next_hop));
+            log::error!("No channel for required next hop ({next_hop}) for packet {packet}");
+            panic!("No channel for required next hop ({next_hop}) for packet {packet}");
         }
     }
 
+    /*
     /// Sends a NACK to listener. Note that the only nack that this will send are just
     /// ErrorInRouting and (hopefully never) UnexpectedRecipient. There is no way that
     /// a Dropped or DestinationIsDrone gets sent, so there is no need to reverse the header
@@ -146,8 +147,10 @@ impl Gateway {
 
         self.send_to_listener(packet);
     }
+     */
 
     /// Sends a Packet to Listener
+    /*
     pub fn send_to_listener(&self, packet: Packet) {
         match self.listener_channel.send(packet.clone()) {
             Ok(()) => {
@@ -159,12 +162,13 @@ impl Gateway {
             }
         }
     }
+     */
 
     /// Adds a channel to the connected neighbors
     fn add_neighbor(&mut self, node_id: NodeId, channel: Sender<Packet>) {
         match self.neighbors.insert(node_id, channel) {
-            None => log::info!("Added neighbor with NodeId {node_id}"),
             Some(_) => log::info!("Updated neighbor's channel associated to NodeId {node_id}"),
+            None => log::info!("Added neighbor with NodeId {node_id}"),
         }
     }
 
@@ -188,11 +192,10 @@ mod test {
     #[test]
     fn initialize() {
         let node_id = 10;
-        let (tx, _rx) = unbounded::<Packet>();
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
-        let gateway = Gateway::new(node_id, HashMap::new(), tx, simulation_controller_notifier.clone());
+        let gateway = Gateway::new(node_id, HashMap::new(), simulation_controller_notifier.clone());
 
         assert_eq!(gateway.node_id, node_id);
         assert!(gateway.neighbors.is_empty());
@@ -201,20 +204,19 @@ mod test {
         let expected = Gateway {
             node_id,
             neighbors: HashMap::new(),
-            listener_channel: tx,
             simulation_controller_notifier,
         };
 
         assert_eq!(gateway, expected);
     }
 
+    /*
     #[test]
     fn check_forward_failure_error_in_routing() {
-        let (tx, rx) = unbounded::<Packet>();
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
-        let gateway = Gateway::new(10, HashMap::new(), tx, simulation_controller_notifier);
+        let gateway = Gateway::new(10, HashMap::new(), simulation_controller_notifier);
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
             routing_header: SourceRoutingHeader {
@@ -239,11 +241,10 @@ mod test {
         };
         assert_eq!(received, expected);
     }
+     */
 
     #[test]
     fn check_forward_successful() {
-        let (tx, _rx) = unbounded::<Packet>();
-
         let (tx_drone, rx_drone) = unbounded::<Packet>();
         let mut neighbors = HashMap::new();
         neighbors.insert(1, tx_drone);
@@ -252,7 +253,7 @@ mod test {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(10, neighbors, tx, simulation_controller_notifier);
+        let gateway = Gateway::new(10, neighbors, simulation_controller_notifier);
 
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
@@ -279,9 +280,8 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "No next hop for current packet")]
+    #[should_panic(expected = "No next hop for packet Packet(0) { routing_header: [  ], pack_type Ack(0) }")]
     fn check_forward_no_next_hop() {
-        let (tx, _rx) = unbounded::<Packet>();
 
         let (tx_drone, rx_drone) = unbounded::<Packet>();
         let mut neighbors = HashMap::new();
@@ -291,7 +291,7 @@ mod test {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(10, neighbors, tx, simulation_controller_notifier);
+        let gateway = Gateway::new(10, neighbors, simulation_controller_notifier);
 
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
@@ -307,8 +307,6 @@ mod test {
 
     #[test]
     fn send_on_channel_checked_test_successful() {
-        let (tx, _rx) = unbounded::<Packet>();
-
         let (tx_drone, rx_drone) = unbounded::<Packet>();
         let mut neighbors = HashMap::new();
         neighbors.insert(1, tx_drone);
@@ -317,7 +315,7 @@ mod test {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(10, neighbors.clone(), tx, simulation_controller_notifier);
+        let gateway = Gateway::new(10, neighbors.clone(), simulation_controller_notifier);
 
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
@@ -339,11 +337,11 @@ mod test {
         assert_eq!(received, packet);
     }
 
+    /*
     #[test]
+    #[should_panic]
     #[timeout(2000)]
     fn send_on_channel_checked_test_fail() {
-        let (listener_tx, listener_rx) = unbounded::<Packet>();
-
         let (tx_drone, rx_drone) = unbounded::<Packet>();
         let mut neighbors = HashMap::new();
         neighbors.insert(1, tx_drone);
@@ -352,7 +350,7 @@ mod test {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(10, neighbors.clone(), listener_tx, simulation_controller_notifier);
+        let gateway = Gateway::new(10, neighbors.clone(), simulation_controller_notifier);
 
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
@@ -370,6 +368,7 @@ mod test {
             packet.routing_header.next_hop().unwrap(),
         );
 
+        /*
         let received_from_listener = listener_rx.recv().unwrap();
 
         let expected = Packet {
@@ -385,14 +384,14 @@ mod test {
         };
 
         assert_eq!(received_from_listener, expected);
+         */
     }
+     */
 
     #[test]
     #[timeout(2000)]
     fn send_flood_request() {
         let gateway_node_id = 9;
-
-        let (listener_tx, _listener_rx) = unbounded::<Packet>();
 
         let mut drones_rx = Vec::new();
         let mut neighbors = HashMap::new();
@@ -410,35 +409,34 @@ mod test {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), listener_tx, simulation_controller_notifier);
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), simulation_controller_notifier);
 
         let flood_request = FloodRequest {
             flood_id: 0,
             initiator_id: gateway_node_id,
             path_trace: vec![(gateway_node_id, NodeType::Server)],
         };
-        let packet = Packet {
-            pack_type: PacketType::FloodRequest(flood_request),
+
+        gateway.send_flood(flood_request.clone());
+
+        let expected = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
                 hops: vec![],
             },
             session_id: 0,
+            pack_type: PacketType::FloodRequest(flood_request),
         };
-
-        gateway.send_flood(packet.clone());
 
         for channel in &drones_rx {
             let received = channel.recv().unwrap();
-            assert_eq!(received, packet);
+            assert_eq!(received, expected);
         }
     }
 
     #[test]
     fn send_flood_response_successful() {
         let gateway_node_id = 9;
-
-        let (listener_tx, _listener_rx) = unbounded::<Packet>();
 
         let mut neighbors = HashMap::new();
         let (tx_drone_1, rx_drone_1) = unbounded::<Packet>();
@@ -448,7 +446,7 @@ mod test {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), listener_tx, simulation_controller_notifier);
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), simulation_controller_notifier);
 
         let session_id = 0;
         let flood_response = FloodResponse {
@@ -472,11 +470,9 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Tried to send a FloodResponse with no next hop")]
+    #[should_panic(expected = "No next hop in path trace to forward back this FloodResponse")]
     fn send_flood_response_with_no_next_hop() {
         let gateway_node_id = 9;
-
-        let (listener_tx, _listener_rx) = unbounded::<Packet>();
 
         let mut neighbors = HashMap::new();
         let (tx_drone_1, _rx_drone_1) = unbounded::<Packet>();
@@ -486,7 +482,7 @@ mod test {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), listener_tx, simulation_controller_notifier);
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), simulation_controller_notifier);
 
         let session_id = 0;
         let flood_response = FloodResponse {
@@ -502,8 +498,6 @@ mod test {
     fn send_flood_response_to_non_existent_node() {
         let gateway_node_id = 9;
 
-        let (listener_tx, _listener_rx) = unbounded::<Packet>();
-
         let mut neighbors = HashMap::new();
         let (tx_drone_1, _rx_drone_1) = unbounded::<Packet>();
         neighbors.insert(1, tx_drone_1);
@@ -512,7 +506,7 @@ mod test {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), listener_tx, simulation_controller_notifier);
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), simulation_controller_notifier);
 
         let session_id = 0;
         let flood_response = FloodResponse {
@@ -525,13 +519,11 @@ mod test {
 
     #[test]
     fn check_add_neighbor() {
-        let (tx, _rx) = unbounded::<Packet>();
-
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let mut gateway = Gateway::new(10, HashMap::new(), tx, simulation_controller_notifier);
+        let mut gateway = Gateway::new(10, HashMap::new(), simulation_controller_notifier);
 
         assert_eq!(gateway.neighbors.len(), 0);
         let (tx_drone_5, _rx_drone_5) = unbounded::<Packet>();
@@ -547,13 +539,11 @@ mod test {
 
     #[test]
     fn check_remove_neighbor() {
-        let (tx, _rx) = unbounded::<Packet>();
-
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let mut gateway = Gateway::new(10, HashMap::new(), tx, simulation_controller_notifier);
+        let mut gateway = Gateway::new(10, HashMap::new(), simulation_controller_notifier);
 
         assert_eq!(gateway.neighbors.len(), 0);
         let (tx_drone_5, _rx_drone_5) = unbounded::<Packet>();

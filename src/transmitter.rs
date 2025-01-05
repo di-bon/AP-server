@@ -47,7 +47,7 @@ pub struct Transmitter {
     // listener -> transmitter
     listener_rx: Receiver<TransmitterInternalCommand>, // receives ACKs, NACKs, FloodRequest and FloodResponse
     // server logic -> transmitter
-    server_logic_rx: Receiver<(NodeId, Message)>, // HL message!
+    server_logic_rx: Receiver<(NodeId, Message)>,
     network_controller: Arc<NetworkController>,
     // transmitter -> transmission handlers
     transmission_handlers: HashMap<u64, Sender<TransmissionHandlerCommand>>,
@@ -74,13 +74,12 @@ impl Transmitter {
         node_id: NodeId,
         node_type: NodeType,
         listener_rx: Receiver<TransmitterInternalCommand>,
-        listener_tx: Sender<Packet>,
         server_logic_rx: Receiver<(NodeId, Message)>,
         connected_drones: HashMap<NodeId, Sender<Packet>>,
         simulation_controller_notifier: Arc<SimulationControllerNotifier>,
         transmitter_command_rx: Receiver<TransmitterUserCommand>,
     ) -> Self {
-        let gateway = Gateway::new(node_id, connected_drones, listener_tx, simulation_controller_notifier.clone());
+        let gateway = Gateway::new(node_id, connected_drones, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let (transmission_handler_event_tx, transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
@@ -272,10 +271,9 @@ mod tests {
     use crate::transmitter::{TransmissionHandlerEvent, Transmitter, TransmitterUserCommand};
 
     fn create_transmitter(node_id: NodeId, node_type: NodeType, connected_drones: HashMap<NodeId, Sender<Packet>>)
-        -> (Transmitter, Sender<TransmitterInternalCommand>, Receiver<Packet>, Sender<(NodeId, Message)>, Receiver<NodeEvent>, Sender<TransmitterUserCommand>)
+        -> (Transmitter, Sender<TransmitterInternalCommand>, Sender<(NodeId, Message)>, Receiver<NodeEvent>, Sender<TransmitterUserCommand>)
     {
         let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded::<TransmitterInternalCommand>();
-        let (transmitter_to_listener_tx, transmitter_to_listener_rx) = unbounded::<Packet>();
         let (server_logic_to_transmitter_tx, server_logic_to_transmitter_rx) = unbounded::<(NodeId, Message)>();
 
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
@@ -288,14 +286,13 @@ mod tests {
             node_id,
             node_type,
             listener_to_transmitter_rx,
-            transmitter_to_listener_tx,
             server_logic_to_transmitter_rx,
             connected_drones,
             simulation_controller_notifier,
             transmitter_command_rx
         );
 
-        (transmitter, listener_to_transmitter_tx, transmitter_to_listener_rx, server_logic_to_transmitter_tx, simulation_controller_rx, transmitter_command_tx)
+        (transmitter, listener_to_transmitter_tx, server_logic_to_transmitter_tx, simulation_controller_rx, transmitter_command_tx)
     }
 
     #[test]
@@ -310,7 +307,6 @@ mod tests {
 
         let (transmitter,
             listener_to_transmitter_tx,
-            transmitter_to_listener_rx,
             server_logic_to_transmitter_tx,
             simulation_controller_rx,
             transmitter_command_tx) = create_transmitter(node_id, node_type, connected_drones);
@@ -319,13 +315,12 @@ mod tests {
         let mut neighbors = HashMap::new();
         let (tx, rx) = unbounded::<Packet>();
         neighbors.insert(1, tx);
-        let (tx, rx) = unbounded::<Packet>();
 
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(node_id, neighbors, tx, simulation_controller_notifier.clone());
+        let gateway = Gateway::new(node_id, neighbors, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let (listener_tx, listener_rx) = unbounded::<TransmitterInternalCommand>();
@@ -366,7 +361,6 @@ mod tests {
 
         let (mut transmitter,
             listener_to_transmitter_tx,
-            transmitter_to_listener_rx,
             server_logic_to_transmitter_tx,
             simulation_controller_rx,
             transmitter_command_tx
@@ -406,7 +400,6 @@ mod tests {
 
         let (mut transmitter,
             listener_to_transmitter_tx,
-            transmitter_to_listener_rx,
             server_logic_to_transmitter_tx,
             simulation_controller_rx,
             transmitter_command_tx) = create_transmitter(node_id, node_type, connected_drones);
@@ -469,7 +462,6 @@ mod tests {
             node_id,
             node_type,
             internal_listener_to_transmitter_rx,
-            internal_transmitter_to_listener_tx,
             internal_server_logic_to_transmitter_rx,
             connected_drones,
             simulation_controller_notifier,

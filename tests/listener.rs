@@ -15,7 +15,6 @@ fn check_quit_command() -> thread::Result<()> {
     let (simulation_controller_notifier, simulation_controller_rx) = create_simulation_controller_notifier();
     let (mut listener,
         listener_to_transmitter_rx,
-        transmitter_to_listener_tx,
         listener_to_logic_rx,
         drones_to_listener_tx,
         listener_command_tx) = create_listener(node_id, simulation_controller_notifier.clone());
@@ -73,7 +72,6 @@ fn check_unexpected_recipient() {
     let (simulation_controller_notifier, simulation_controller_rx) = create_simulation_controller_notifier();
     let (mut listener,
         listener_to_transmitter_rx,
-        transmitter_to_listener_tx,
         listener_to_logic_rx,
         drones_to_listener_tx,
         listener_command_tx) = create_listener(node_id, simulation_controller_notifier.clone());

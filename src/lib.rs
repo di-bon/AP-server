@@ -41,7 +41,6 @@ impl NullPointerDibServer {
         drones_tx: HashMap<NodeId, Sender<Packet>>,
         simulation_controller_tx: Sender<NodeEvent>,
     ) -> Self {
-        let (internal_transmitter_to_listener_tx, internal_transmitter_to_listener_rx) = unbounded::<Packet>();
         let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded::<TransmitterInternalCommand>();
         let (internal_listener_to_server_logic_tx, internal_listener_to_server_logic_rx) = unbounded::<Message>();
         let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded::<(NodeId, Message)>();
@@ -56,7 +55,6 @@ impl NullPointerDibServer {
             node_id,
             NodeType::Server,
             internal_listener_to_transmitter_rx,
-            internal_transmitter_to_listener_tx,
             internal_server_logic_to_transmitter_rx,
             drones_tx,
             simulation_controller_notifier.clone(),
@@ -67,7 +65,6 @@ impl NullPointerDibServer {
         let listener = Listener::new(
             node_id,
             internal_listener_to_transmitter_tx,
-            internal_transmitter_to_listener_rx,
             internal_listener_to_server_logic_tx,
             listener_rx,
             listener_commands_rx,

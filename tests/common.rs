@@ -12,10 +12,9 @@ pub fn create_transmitter(
     node_type: NodeType,
     connected_drones: HashMap<NodeId, Sender<Packet>>,
     simulation_controller_notifier: Arc<SimulationControllerNotifier>,
-) -> (Transmitter, Sender<TransmitterInternalCommand>, Receiver<Packet>, Sender<(NodeId, Message)>, Sender<TransmitterUserCommand>) {
+) -> (Transmitter, Sender<TransmitterInternalCommand>, Sender<(NodeId, Message)>, Sender<TransmitterUserCommand>) {
 
     let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded::<TransmitterInternalCommand>();
-    let (transmitter_to_listener_tx, transmitter_to_listener_rx) = unbounded::<Packet>();
     let (logic_to_transmitter_tx, logic_to_transmitter_rx) = unbounded();
     let (transmitter_command_tx, transmitter_command_rx) = unbounded();
 
@@ -23,14 +22,13 @@ pub fn create_transmitter(
         node_id,
         node_type,
         listener_to_transmitter_rx,
-        transmitter_to_listener_tx,
         logic_to_transmitter_rx,
         connected_drones,
         simulation_controller_notifier,
         transmitter_command_rx,
     );
 
-    (transmitter, listener_to_transmitter_tx, transmitter_to_listener_rx, logic_to_transmitter_tx, transmitter_command_tx)
+    (transmitter, listener_to_transmitter_tx, logic_to_transmitter_tx, transmitter_command_tx)
 }
 
 pub fn create_simulation_controller_notifier() -> (Arc<SimulationControllerNotifier>, Receiver<NodeEvent>) {
@@ -42,9 +40,8 @@ pub fn create_simulation_controller_notifier() -> (Arc<SimulationControllerNotif
     (simulation_controller_notifier, simulation_controller_rx)
 }
 
-pub fn create_listener(node_id: NodeId, simulation_controller_notifier: Arc<SimulationControllerNotifier>) -> (Listener, Receiver<TransmitterInternalCommand>, Sender<Packet>, Receiver<Message>, Sender<Packet>, Sender<ListenerCommand>) {
+pub fn create_listener(node_id: NodeId, simulation_controller_notifier: Arc<SimulationControllerNotifier>) -> (Listener, Receiver<TransmitterInternalCommand>, Receiver<Message>, Sender<Packet>, Sender<ListenerCommand>) {
     let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded();
-    let (transmitter_to_listener_tx, transmitter_to_listener_rx) = unbounded();
     let (listener_to_logic_tx, listener_to_logic_rx) = unbounded();
     let (drones_to_listener_tx, drones_to_listener_rx) = unbounded();
     let (listener_command_tx, listener_command_rx) = unbounded();
@@ -52,12 +49,11 @@ pub fn create_listener(node_id: NodeId, simulation_controller_notifier: Arc<Simu
     let listener = Listener::new(
         node_id,
         listener_to_transmitter_tx,
-        transmitter_to_listener_rx,
         listener_to_logic_tx,
         drones_to_listener_rx,
         listener_command_rx,
         simulation_controller_notifier,
     );
 
-    (listener, listener_to_transmitter_rx, transmitter_to_listener_tx, listener_to_logic_rx, drones_to_listener_tx, listener_command_tx)
+    (listener, listener_to_transmitter_rx, listener_to_logic_rx, drones_to_listener_tx, listener_command_tx)
 }
