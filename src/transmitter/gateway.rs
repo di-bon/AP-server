@@ -5,11 +5,13 @@ use messages::node_event::NodeEvent;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{FloodRequest, FloodResponse, Nack, NackType, Packet, PacketType};
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
+use crate::transmitter::TransmitterInternalCommand;
 
 #[derive(Debug)]
 pub struct Gateway {
     node_id: NodeId,
     neighbors: HashMap<NodeId, Sender<Packet>>,
+    gateway_to_transmitter_tx: Sender<TransmitterInternalCommand>,
     simulation_controller_notifier: Arc<SimulationControllerNotifier>,
 }
 
@@ -25,11 +27,13 @@ impl Gateway {
     pub fn new(
         node_id: NodeId,
         neighbors: HashMap<NodeId, Sender<Packet>>,
+        gateway_to_transmitter_tx: Sender<TransmitterInternalCommand>,
         simulation_controller_notifier: Arc<SimulationControllerNotifier>,
     ) -> Self {
         Self {
             node_id,
             neighbors,
+            gateway_to_transmitter_tx,
             simulation_controller_notifier
         }
     }
@@ -61,8 +65,15 @@ impl Gateway {
             Err(SendError(packet)) => {
                 let nack_type = NackType::ErrorInRouting(next_hop);
                 log::warn!("Error while sending packet {packet} to node {next_hop}: sending nack packet {nack_type:?}");
-                // self.send_nack_packet_to_listener(packet, nack_type);
-                // TODO: error propagation back to transmitter
+                let command = TransmitterInternalCommand::ProcessNack {
+                    session_id: packet.session_id,
+                    nack: Nack {
+                        fragment_index: 0, // Useless if sending ErrorInRouting, so set it to 0
+                        nack_type,
+                    },
+                    source: self.node_id,
+                };
+                self.propagate_command_to_transmitter(command);
             }
         }
     }
@@ -179,6 +190,16 @@ impl Gateway {
             None => log::warn!("Cannot remove neighbor's channel associated to NodeId {node_id}: there is no channel to remove"),
         }
     }
+
+    pub fn propagate_command_to_transmitter(&self, command: TransmitterInternalCommand) {
+        match self.gateway_to_transmitter_tx.send(command) {
+            Ok(()) => {}
+            Err(SendError(command)) => {
+                log::error!("Cannot send {command:?} to transmitter");
+                panic!("Cannot send {command:?} to transmitter");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -192,10 +213,14 @@ mod test {
     #[test]
     fn initialize() {
         let node_id = 10;
+
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
-        let gateway = Gateway::new(node_id, HashMap::new(), simulation_controller_notifier.clone());
+
+        let gateway = Gateway::new(node_id, HashMap::new(), gateway_to_transmitter_tx.clone(), simulation_controller_notifier.clone());
 
         assert_eq!(gateway.node_id, node_id);
         assert!(gateway.neighbors.is_empty());
@@ -204,6 +229,7 @@ mod test {
         let expected = Gateway {
             node_id,
             neighbors: HashMap::new(),
+            gateway_to_transmitter_tx,
             simulation_controller_notifier,
         };
 
@@ -249,11 +275,13 @@ mod test {
         let mut neighbors = HashMap::new();
         neighbors.insert(1, tx_drone);
 
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(10, neighbors, simulation_controller_notifier);
+        let gateway = Gateway::new(10, neighbors, gateway_to_transmitter_tx, simulation_controller_notifier);
 
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
@@ -287,11 +315,13 @@ mod test {
         let mut neighbors = HashMap::new();
         neighbors.insert(1, tx_drone);
 
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(10, neighbors, simulation_controller_notifier);
+        let gateway = Gateway::new(10, neighbors, gateway_to_transmitter_tx, simulation_controller_notifier);
 
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
@@ -311,11 +341,13 @@ mod test {
         let mut neighbors = HashMap::new();
         neighbors.insert(1, tx_drone);
 
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(10, neighbors.clone(), simulation_controller_notifier);
+        let gateway = Gateway::new(10, neighbors.clone(), gateway_to_transmitter_tx, simulation_controller_notifier);
 
         let packet = Packet {
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
@@ -405,11 +437,13 @@ mod test {
         neighbors.insert(10, tx_drone_10);
         drones_rx.push(rx_drone_10);
 
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), simulation_controller_notifier);
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), gateway_to_transmitter_tx, simulation_controller_notifier);
 
         let flood_request = FloodRequest {
             flood_id: 0,
@@ -442,11 +476,13 @@ mod test {
         let (tx_drone_1, rx_drone_1) = unbounded::<Packet>();
         neighbors.insert(1, tx_drone_1);
 
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), simulation_controller_notifier);
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), gateway_to_transmitter_tx, simulation_controller_notifier);
 
         let session_id = 0;
         let flood_response = FloodResponse {
@@ -478,11 +514,13 @@ mod test {
         let (tx_drone_1, _rx_drone_1) = unbounded::<Packet>();
         neighbors.insert(1, tx_drone_1);
 
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), simulation_controller_notifier);
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), gateway_to_transmitter_tx, simulation_controller_notifier);
 
         let session_id = 0;
         let flood_response = FloodResponse {
@@ -502,11 +540,13 @@ mod test {
         let (tx_drone_1, _rx_drone_1) = unbounded::<Packet>();
         neighbors.insert(1, tx_drone_1);
 
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), simulation_controller_notifier);
+        let gateway = Gateway::new(gateway_node_id, neighbors.clone(), gateway_to_transmitter_tx, simulation_controller_notifier);
 
         let session_id = 0;
         let flood_response = FloodResponse {
@@ -523,7 +563,9 @@ mod test {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let mut gateway = Gateway::new(10, HashMap::new(), simulation_controller_notifier);
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
+        let mut gateway = Gateway::new(10, HashMap::new(), gateway_to_transmitter_tx, simulation_controller_notifier);
 
         assert_eq!(gateway.neighbors.len(), 0);
         let (tx_drone_5, _rx_drone_5) = unbounded::<Packet>();
@@ -543,7 +585,9 @@ mod test {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let mut gateway = Gateway::new(10, HashMap::new(), simulation_controller_notifier);
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
+        let mut gateway = Gateway::new(10, HashMap::new(), gateway_to_transmitter_tx, simulation_controller_notifier);
 
         assert_eq!(gateway.neighbors.len(), 0);
         let (tx_drone_5, _rx_drone_5) = unbounded::<Packet>();

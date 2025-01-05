@@ -145,7 +145,8 @@ fn check_message_handling_and_forwarding() {
 
         let command = TransmitterInternalCommand::ForwardAckTo {
             session_id,
-            ack
+            ack,
+            source,
         };
 
         listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
@@ -188,11 +189,6 @@ fn check_unexpected_ack() {
             (2, NodeType::Client),
         ],
     };
-    // let flood_response = Packet {
-    //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-    //     session_id: 0,
-    //     pack_type: PacketType::FloodResponse(flood_response),
-    // };
 
     let command = TransmitterInternalCommand::ProcessFloodResponse(flood_response);
 
@@ -200,20 +196,17 @@ fn check_unexpected_ack() {
 
     // send ACK packet
 
-    let fragment_index = 0;
+    let fragment_index = 10;
     let ack = Ack {
         fragment_index,
     };
 
-    // let ack = Packet {
-    //     routing_header: SourceRoutingHeader { hop_index: 1, hops: vec![1, node_id] },
-    //     session_id: 0,
-    //     pack_type: PacketType::Ack(ack),
-    // };
+    let session_id = 10;
 
     let command = TransmitterInternalCommand::ForwardAckTo {
-        session_id: 10,
+        session_id,
         ack,
+        source: 1,
     };
 
     listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
@@ -221,12 +214,12 @@ fn check_unexpected_ack() {
     // check NACK response Packet
 
     let expected = Nack {
-        fragment_index,
+        fragment_index: 0,
         nack_type: NackType::UnexpectedRecipient(node_id),
     };
     let expected = Packet {
         routing_header: SourceRoutingHeader { hop_index: 1, hops: vec![node_id, 1] } ,
-        session_id: 0,
+        session_id,
         pack_type: PacketType::Nack(expected),
     };
 

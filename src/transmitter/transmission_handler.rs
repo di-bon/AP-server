@@ -13,14 +13,11 @@ use crate::simulation_controller_notifier::SimulationControllerNotifier;
 use crate::transmitter::{TransmissionHandlerCommand, TransmissionHandlerEvent};
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::network_controller::NetworkController;
-// TODO: maybe also handle ACKs?
 
-// TODO: implement backoff time -> move network_controller.get_path() inside transmission_handler
 // instead of receiving a routing header in the constructor
 
 /// A `TransmissionHandler` struct that will handle the fragmentation and packet creation, sending
-/// said packets to the gateway. All created packets will share the same `SourceRoutingHeader`,
-/// unless it gets updated using the `update_source_routing_header` method
+/// said packets to the gateway.
 pub(super) struct TransmissionHandler {
     message: Message,
     fragments: Vec<Fragment>,
@@ -33,6 +30,7 @@ pub(super) struct TransmissionHandler {
     received_acks: HashSet<u64>,
     transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
     simulation_controller_notifier: Arc<SimulationControllerNotifier>,
+    backoff_time: Duration,
 }
 
 impl TransmissionHandler {
@@ -44,6 +42,7 @@ impl TransmissionHandler {
         command_rx: Receiver<TransmissionHandlerCommand>,
         transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
         simulation_controller_notifier: Arc<SimulationControllerNotifier>,
+        backoff_time: Duration,
     ) -> Self {
         let fragments = NaiveAssembler::disassemble(&message.stringify().into_bytes());
         let source_id = message.source_id;
@@ -59,7 +58,8 @@ impl TransmissionHandler {
             command_rx,
             received_acks: HashSet::new(),
             transmission_handler_event_tx,
-            simulation_controller_notifier
+            simulation_controller_notifier,
+            backoff_time,
         }
     }
 
@@ -110,14 +110,6 @@ impl TransmissionHandler {
                             TransmissionHandlerCommand::UpdateHeader => {
                                 source_routing_header = self.find_new_routing_header();
                             },
-                            /*
-                            Command::UpdateSourceRoutingHeader(source_routing_header) => {
-                                self.update_source_routing_header(source_routing_header);
-                                // Note: it is not needed to resend the previous fragments, if a
-                                // NACK will be received, then they will be sent again using the
-                                // new header
-                            }
-                             */
                             TransmissionHandlerCommand::Quit => {
                                 break;
                             }
@@ -126,7 +118,14 @@ impl TransmissionHandler {
                 }
             }
         }
+
         let event = TransmissionHandlerEvent::TransmissionCompleted(self.session_id);
+        self.notify_transmitter(event);
+
+        log::info!("Transmission handler for session {} terminated", self.session_id);
+    }
+
+    fn notify_transmitter(&self, event: TransmissionHandlerEvent) {
         match self.transmission_handler_event_tx.send(event.clone()) {
             Ok(()) => {
                 log::info!("Transmission handler for session {} sent {:?} to transmitter", self.session_id, event);
@@ -135,7 +134,6 @@ impl TransmissionHandler {
                 log::warn!("Transmission handler for session {} cannot send TransmissionHandlerEvent messages to transmitter", self.session_id);
             }
         }
-        log::info!("Transmission handler for session {} terminated", self.session_id);
     }
 
     fn create_packet(&self, fragment: Fragment, source_routing_header: SourceRoutingHeader) -> Packet {
@@ -147,20 +145,18 @@ impl TransmissionHandler {
     }
 
     fn find_new_routing_header(&self) -> SourceRoutingHeader {
-        let mut hops;
         loop {
-            hops = self.network_controller.get_path(self.destination_node_id);
-            if hops.is_some() {
-                break;
+            let hops = self.network_controller.get_path(self.destination_node_id);
+            if let Some(hops) = hops {
+                let source_routing_header = SourceRoutingHeader {
+                    hop_index: 0,
+                    hops,
+                };
+                return source_routing_header;
             } else {
-                thread::sleep(Duration::from_millis(2000));
+                thread::sleep(self.backoff_time);
             }
         }
-        let source_routing_header = SourceRoutingHeader {
-            hop_index: 0,
-            hops: hops.unwrap(),
-        };
-        source_routing_header
     }
 }
 
@@ -174,8 +170,9 @@ mod tests {
     use messages::TextResponse::Text;
     use ntest::timeout;
     use wg_2024::packet::{FloodResponse, NodeType, Packet, PacketType};
+    use crate::test_utils::TransmitterInternalCommand;
 
-    fn create_transmission_handler(message: &Message, node_id: NodeId, node_type: NodeType, destination_node_id: NodeId, paths: Vec<FloodResponse>) -> (TransmissionHandler, Receiver<Packet>, Receiver<NodeEvent>, Sender<TransmissionHandlerCommand>) {
+    fn create_transmission_handler(message: &Message, node_id: NodeId, node_type: NodeType, destination_node_id: NodeId, paths: Vec<FloodResponse>, backoff_time: Duration) -> (TransmissionHandler, Receiver<Packet>, Receiver<NodeEvent>, Sender<TransmissionHandlerCommand>, Receiver<TransmitterInternalCommand>) {
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
@@ -185,7 +182,9 @@ mod tests {
         let (drone_tx, drone_rx) = unbounded::<Packet>();
         connected_drones.insert(1, drone_tx);
 
-        let gateway = Gateway::new(0, connected_drones, simulation_controller_notifier.clone());
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
+        let gateway = Gateway::new(0, connected_drones, gateway_to_transmitter_tx, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let (command_tx, command_rx) = unbounded::<TransmissionHandlerCommand>();
@@ -206,9 +205,10 @@ mod tests {
             command_rx,
             transmission_handler_event_tx,
             simulation_controller_notifier.clone(),
+            backoff_time,
         );
 
-        (transmission_handler, drone_rx, simulation_controller_rx, command_tx)
+        (transmission_handler, drone_rx, simulation_controller_rx, command_tx, gateway_to_transmitter_rx)
     }
 
     #[test]
@@ -220,7 +220,7 @@ mod tests {
         };
 
         let paths = vec![];
-        let (transmission_handler, drone_rx, simulation_controller_rx, command_tx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths);
+        let (transmission_handler, drone_rx, simulation_controller_rx, command_tx, gateway_to_transmitter_rx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths, Duration::from_millis(2000));
 
         assert_eq!(message.source_id, transmission_handler.source_id);
         assert_eq!(message.session_id, transmission_handler.session_id);
@@ -236,7 +236,7 @@ mod tests {
         };
 
         let paths = vec![];
-        let (transmission_handler, drone_rx, simulation_controller_rx, command_tx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths);
+        let (transmission_handler, drone_rx, simulation_controller_rx, command_tx, gateway_to_transmitter_rx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths, Duration::from_millis(2000));
 
         let expected_packet = Packet {
             routing_header: Default::default(),
@@ -299,7 +299,7 @@ mod tests {
                 ],
             }
         ];
-        let (mut transmission_handler, drone_rx, simulation_controller_rx, command_tx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths);
+        let (mut transmission_handler, drone_rx, simulation_controller_rx, command_tx, gateway_to_transmitter_rx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths, Duration::from_millis(2000));
 
         thread::spawn(move || {
             transmission_handler.run();
@@ -369,7 +369,7 @@ mod tests {
                 ],
             }
         ];
-        let (mut transmission_handler, drone_rx, simulation_controller_rx, command_tx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths);
+        let (mut transmission_handler, drone_rx, simulation_controller_rx, command_tx, gateway_to_transmitter_rx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths, Duration::from_millis(2000));
 
         let handle = thread::spawn(move || {
             transmission_handler.run();

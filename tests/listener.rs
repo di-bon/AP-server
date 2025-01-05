@@ -96,13 +96,13 @@ fn check_unexpected_recipient() {
 
     let received = listener_to_transmitter_rx.recv().unwrap();
 
-    let expected = TransmitterInternalCommand::ProcessNack {
+    let expected = TransmitterInternalCommand::SendNack {
         session_id: 0,
         nack: Nack {
             fragment_index: 0,
             nack_type: NackType::UnexpectedRecipient(node_id),
         },
-        source: 100,
+        destination: 100,
     };
 
     assert_eq!(received, expected);
@@ -124,13 +124,13 @@ fn check_unexpected_recipient() {
 
     let received = listener_to_transmitter_rx.recv().unwrap();
 
-    let expected = TransmitterInternalCommand::ProcessNack {
+    let expected = TransmitterInternalCommand::SendNack {
         session_id: 0,
         nack: Nack {
             fragment_index: 0,
             nack_type: NackType::UnexpectedRecipient(node_id),
         },
-        source: 100,
+        destination: 100,
     };
 
     assert_eq!(received, expected);

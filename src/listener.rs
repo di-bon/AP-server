@@ -137,10 +137,10 @@ impl Listener {
                         nack_type: nack_type.clone(),
                     };
 
-                    let command = TransmitterInternalCommand::ProcessNack {
+                    let command = TransmitterInternalCommand::SendNack {
                         session_id,
                         nack,
-                        source,
+                        destination: source,
                     };
 
                     self.send_command_to_transmitter(command);
@@ -196,6 +196,7 @@ impl Listener {
                 let command = TransmitterInternalCommand::ForwardAckTo {
                     session_id: packet.session_id,
                     ack,
+                    source,
                 };
 
                 self.send_command_to_transmitter(command);
@@ -253,9 +254,8 @@ mod tests {
     use super::*;
     use crossbeam_channel::unbounded;
     use ntest::timeout;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
     use std::thread;
-    use std::thread::sleep;
     use std::time::Duration;
     use messages::{RequestType, TextRequest};
     use wg_2024::network::SourceRoutingHeader;
@@ -435,6 +435,7 @@ mod tests {
         let command = TransmitterInternalCommand::ForwardAckTo {
             session_id: 0,
             ack: Ack { fragment_index: 0 },
+            source: 0,
         };
 
         let expected = command.clone();
@@ -457,15 +458,17 @@ mod tests {
             listener_public_tx,
             _simulation_controller_rx,
         ) = create_listener_and_channels(1);
-        let listener = Arc::new(Mutex::new(listener));
+
+        let listener = Arc::new(RwLock::new(listener));
         let listener_clone = Arc::clone(&listener);
 
         let _ = thread::spawn(move || {
-            let mut listener = listener_clone.lock().unwrap();
+            thread::sleep(Duration::from_millis(100));
+            let mut listener = listener_clone.write().unwrap();
             listener.run()
         });
 
-        assert_eq!(listener.lock().unwrap().storers.len(), 0);
+        assert_eq!(listener.read().unwrap().storers.len(), 0);
 
         let fragment = Fragment {
             fragment_index: 0,
@@ -484,10 +487,10 @@ mod tests {
         };
         let _ = listener_public_tx.send(fragment_packet.clone());
 
-        sleep(Duration::from_millis(200));
+        thread::sleep(Duration::from_millis(200));
         let _ = listener_commands_tx.send(ListenerCommand::Quit);
 
-        let listener = listener.lock().unwrap();
+        let listener = listener.read().unwrap();
 
         assert_eq!(listener.storers.len(), 1);
         let storer = listener.storers.get(&(1, 10)).unwrap();
@@ -520,6 +523,7 @@ mod tests {
         let expected = TransmitterInternalCommand::ForwardAckTo {
             session_id: 0,
             ack: ack.clone(),
+            source: 5,
         };
 
         let ack = Packet {
@@ -729,9 +733,4 @@ mod tests {
         let received = internal_listener_to_server_logic_rx.recv().unwrap();
         assert_eq!(received, message);
     }
-
-    /*
-     TODO: test that need to be done:
-     - receiving different types of packets from tx channel
-    */
 }

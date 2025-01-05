@@ -141,7 +141,9 @@ mod tests {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(node_id, HashMap::new(), simulation_controller_notifier.clone());
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
+        let gateway = Gateway::new(node_id, HashMap::new(), gateway_to_transmitter_tx, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let network_controller = NetworkController::new(node_id, node_type, gateway.clone(), simulation_controller_notifier.clone());
@@ -166,7 +168,9 @@ mod tests {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(node_id, HashMap::new(), simulation_controller_notifier.clone());
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
+        let gateway = Gateway::new(node_id, HashMap::new(), gateway_to_transmitter_tx, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let mut network_controller = NetworkController::new(node_id, node_type, gateway, simulation_controller_notifier.clone());
@@ -241,7 +245,9 @@ mod tests {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(node_id, HashMap::new(), simulation_controller_notifier.clone());
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
+        let gateway = Gateway::new(node_id, HashMap::new(), gateway_to_transmitter_tx, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let mut network_controller = NetworkController::new(node_id, node_type, gateway, simulation_controller_notifier.clone());
@@ -307,7 +313,9 @@ mod tests {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(node_id, connected_drones, simulation_controller_notifier.clone());
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
+        let gateway = Gateway::new(node_id, connected_drones, gateway_to_transmitter_tx, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let mut network_controller = NetworkController::new(node_id, node_type, gateway, simulation_controller_notifier.clone());
@@ -353,7 +361,9 @@ mod tests {
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let gateway = Gateway::new(node_id, connected_drones, simulation_controller_notifier.clone());
+        let (gateway_to_transmitter_tx, gateway_to_transmitter_rx) = unbounded();
+
+        let gateway = Gateway::new(node_id, connected_drones, gateway_to_transmitter_tx, simulation_controller_notifier.clone());
         let gateway = Arc::new(gateway);
 
         let network_controller = NetworkController::new(node_id, node_type, gateway, simulation_controller_notifier.clone());
