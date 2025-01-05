@@ -8,8 +8,6 @@ use wg_2024::packet::{Packet, PacketType};
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::network_controller::NetworkController;
 
-// instead of receiving a routing header in the constructor
-
 /// A `TransmissionHandler` struct that will handle the fragmentation and packet creation, sending
 /// said packets to the gateway. All created packets will share the same `SourceRoutingHeader`,
 /// unless it gets updated using the `update_source_routing_header` method
