@@ -5,7 +5,7 @@
 // #![allow(clippy::missing_panics_doc)]
 
 use std::collections::HashMap;
-use std::sync::{Arc, LockResult, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use messages::Message;

@@ -44,9 +44,7 @@ impl Storer {
     /// Returns a Vec<Fragment> containing all the received fragments
     pub fn get_fragments(&self) -> Vec<Fragment> {
         let mut vector = self
-            .fragments
-            .iter()
-            .map(|(_fragment_index, fragment)| fragment.clone())
+            .fragments.values().map(|fragment| fragment.clone())
             .collect::<Vec<Fragment>>();
         vector.sort_by_key(|fragment: &Fragment| fragment.fragment_index);
         vector

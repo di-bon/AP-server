@@ -1,8 +1,6 @@
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use assembler::Assembler;
-use messages::{MessageUtilities};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Packet, PacketType};
 use crate::transmitter::gateway::Gateway;
@@ -27,7 +25,7 @@ impl SinglePacketTransmissionHandler {
     }
 
     pub fn send_packet(&self) {
-        let mut source_routing_header = self.find_new_routing_header();
+        let source_routing_header = self.find_new_routing_header();
 
        let packet = Packet {
            routing_header: source_routing_header,

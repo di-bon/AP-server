@@ -1,7 +1,7 @@
 mod network_node;
 
 use crate::transmitter::network_controller::network_graph::network_node::NetworkNode;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use wg_2024::network::NodeId;
 use wg_2024::packet::NodeType;
@@ -63,10 +63,8 @@ impl NetworkGraph {
     fn insert_node_if_not_present(&self, node_id: NodeId, node_type: NodeType) {
         let insert_node = {
             let nodes = self.nodes.read().unwrap();
-            nodes
-                .iter()
-                .find(|node| node.read().unwrap().node_id == node_id)
-                .is_none()
+            !nodes
+                .iter().any(|node| node.read().unwrap().node_id == node_id)
         };
 
         if insert_node {
@@ -295,7 +293,7 @@ impl NetworkGraph {
                     come_from.insert(*neighbor_node_id, current_node_id);
                     costs.insert(*neighbor_node_id, neighbor_proposed_cost);
 
-                    if !to_be_examined.contains(&neighbor_node_id) {
+                    if !to_be_examined.contains(neighbor_node_id) {
                         to_be_examined.push(*neighbor_node_id);
                     }
                 }

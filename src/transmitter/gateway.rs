@@ -80,7 +80,7 @@ impl Gateway {
 
     /// Sends a FloodResponse packet
     pub fn send_flood_response(&self, flood_response: FloodResponse) {
-        let forward_to = match flood_response.path_trace.iter().nth(1) {
+        let forward_to = match flood_response.path_trace.get(1) {
             Some((node_id, _node_type)) => *node_id,
             None => {
                 log::error!("No next hop in path trace to forward back this FloodResponse");

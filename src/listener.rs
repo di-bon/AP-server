@@ -7,7 +7,7 @@ use crossbeam_channel::{select, Receiver, SendError, Sender};
 use messages::node_event::NodeEvent;
 use std::collections::HashMap;
 use std::sync::Arc;
-use messages::{Message, MessageType};
+use messages::Message;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Fragment, Nack, NackType, Packet, PacketType};
 use messages::MessageUtilities;
@@ -146,7 +146,7 @@ impl Listener {
 
                     let nack = Nack {
                         fragment_index: fragment.fragment_index,
-                        nack_type: nack_type.clone(),
+                        nack_type: nack_type,
                     };
 
                     let command = TransmitterInternalCommand::SendNack {

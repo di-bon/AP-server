@@ -1,12 +1,10 @@
 use std::collections::HashMap;
-use std::process::Command;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use crossbeam_channel::{select, unbounded, Receiver, Sender};
 use messages::Message;
-use messages::node_event::NodeEvent;
-use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::network::NodeId;
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Nack, NackType, NodeType, Packet, PacketType};
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
 use crate::transmitter::network_controller::NetworkController;
