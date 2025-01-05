@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::ptr::read;
 use std::thread;
+use std::time::Duration;
 use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
 use crossbeam_channel::unbounded;
@@ -345,14 +346,8 @@ fn check_nack_processing() {
             (4, NodeType::Client),
         ],
     };
-    // let flood_response = Packet {
-    //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-    //     session_id: 0,
-    //     pack_type: PacketType::FloodResponse(flood_response),
-    // };
 
     let command = TransmitterInternalCommand::ProcessFloodResponse(flood_response);
-
     listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     let event = simulation_controller_rx.recv().unwrap();
@@ -370,14 +365,8 @@ fn check_nack_processing() {
             (4, NodeType::Client),
         ],
     };
-    // let flood_response = Packet {
-    //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
-    //     session_id: 0,
-    //     pack_type: PacketType::FloodResponse(flood_response),
-    // };
 
     let command = TransmitterInternalCommand::ProcessFloodResponse(flood_response);
-
     listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     let event = simulation_controller_rx.recv().unwrap();
@@ -400,6 +389,7 @@ fn check_nack_processing() {
     let destination_node_id = 4;
 
     logic_to_transmitter_tx.send((destination_node_id, message.clone())).expect("Logic cannot communicate with transmitter");
+
     let event = simulation_controller_rx.recv().unwrap();
     assert!(matches!(event, NodeEvent::StartingMessageTransmission(_)));
 
@@ -410,19 +400,13 @@ fn check_nack_processing() {
     }
 
     // send NACK
+    thread::sleep(Duration::from_millis(50));
 
     let nack = Nack {
         fragment_index: 0,
         nack_type: NackType::ErrorInRouting(3),
     };
-    // let nack = Packet {
-    //     routing_header: SourceRoutingHeader { hop_index: 2, hops: vec![2, 1, node_id] },
-    //     session_id,
-    //     pack_type: PacketType::Nack(nack),
-    // };
-
     let command = TransmitterInternalCommand::ProcessNack { session_id, nack, source: 2 };
-
     listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     let event = simulation_controller_rx.recv().unwrap();

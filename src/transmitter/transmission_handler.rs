@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
 use crossbeam_channel::{select, Receiver, Sender};
@@ -14,23 +14,22 @@ use crate::transmitter::{TransmissionHandlerCommand, TransmissionHandlerEvent};
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::network_controller::NetworkController;
 
-// instead of receiving a routing header in the constructor
-
 /// A `TransmissionHandler` struct that will handle the fragmentation and packet creation, sending
 /// said packets to the gateway.
-pub(super) struct TransmissionHandler {
+pub struct TransmissionHandler {
     message: Message,
     fragments: Vec<Fragment>,
     source_id: NodeId,
     session_id: u64,
     gateway: Arc<Gateway>,
     network_controller: Arc<NetworkController>,
-    destination_node_id: NodeId,
+    destination: NodeId,
     command_rx: Receiver<TransmissionHandlerCommand>,
     received_acks: HashSet<u64>,
     transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
     simulation_controller_notifier: Arc<SimulationControllerNotifier>,
-    backoff_time: Duration,
+    backoff_time: Duration, // the time to wait before trying again to find a new SourceRoutingHeader if the previous time there was no known path
+    last_header_update_time: SystemTime,
 }
 
 impl TransmissionHandler {
@@ -38,7 +37,7 @@ impl TransmissionHandler {
         message: Message,
         gateway: Arc<Gateway>,
         network_controller: Arc<NetworkController>,
-        destination_node_id: NodeId,
+        destination: NodeId,
         command_rx: Receiver<TransmissionHandlerCommand>,
         transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
         simulation_controller_notifier: Arc<SimulationControllerNotifier>,
@@ -54,12 +53,13 @@ impl TransmissionHandler {
             session_id,
             gateway,
             network_controller,
-            destination_node_id,
+            destination,
             command_rx,
             received_acks: HashSet::new(),
             transmission_handler_event_tx,
             simulation_controller_notifier,
             backoff_time,
+            last_header_update_time: SystemTime::UNIX_EPOCH // Set last update to 1970-01-01 00:00:00 UTC to make sure that the header will be updated on the first TransmissionHandlerCommand::UpdateHeader received
         }
     }
 
@@ -73,7 +73,7 @@ impl TransmissionHandler {
 
         // Send all packets at once
         for fragment in &self.fragments {
-            let packet = self.create_packet(fragment.clone(), source_routing_header.clone());
+            let packet = self.create_packet_for_fragment(fragment.clone(), source_routing_header.clone());
             self.gateway.forward(packet);
         };
 
@@ -82,38 +82,28 @@ impl TransmissionHandler {
             select! {
                 recv(self.command_rx) -> command => {
                     if let Ok(command) = command {
+                        log::info!("Received command {command:?}");
                         match command {
                             TransmissionHandlerCommand::Resend(fragment_index) => {
-                                let fragment = self.fragments.get(fragment_index as usize);
-                                match fragment {
-                                    Some(fragment) => {
-                                        let packet = self.create_packet(fragment.clone(), source_routing_header.clone());
-                                        self.gateway.forward(packet);
-                                    },
-                                    None => {
-                                        log::warn!(
-                                            "TransmissionHandler for session {} received a command {:?} with fragment index {fragment_index} out of bounds",
-                                            self.session_id,
-                                            TransmissionHandlerCommand::Resend(fragment_index)
-                                        );
-                                    }
-                                }
-                            }
+                                self.process_resend_command(fragment_index, &mut source_routing_header);
+                            },
                             TransmissionHandlerCommand::Confirmed(fragment_index) => {
-                                self.received_acks.insert(fragment_index);
-                                if self.received_acks.len() == self.fragments.len() {
+                                if self.process_confirmed_command(fragment_index) {
                                     let event = NodeEvent::MessageSentSuccessfully(self.message.clone());
                                     self.simulation_controller_notifier.send_event(event);
-                                    break;
+                                    break
                                 }
                             },
                             TransmissionHandlerCommand::UpdateHeader => {
-                                source_routing_header = self.find_new_routing_header();
+                                self.process_update_header_command(&mut source_routing_header);
                             },
                             TransmissionHandlerCommand::Quit => {
                                 break;
-                            }
+                            },
                         }
+                    } else {
+                        log::error!("Error while receiving commands from transmitter");
+                        panic!("Error while receiving commands from transmitter");
                     }
                 }
             }
@@ -123,6 +113,39 @@ impl TransmissionHandler {
         self.notify_transmitter(event);
 
         log::info!("Transmission handler for session {} terminated", self.session_id);
+    }
+
+    fn process_resend_command(&self, fragment_index: u64, source_routing_header: &mut SourceRoutingHeader) {
+        let fragment = self.fragments.get(fragment_index as usize);
+        match fragment {
+            Some(fragment) => {
+                let packet = self.create_packet_for_fragment(fragment.clone(), source_routing_header.clone());
+                self.gateway.forward(packet);
+            },
+            None => {
+                log::warn!("TransmissionHandler for session {} received a command {:?} with fragment index {fragment_index} out of bounds", self.session_id, TransmissionHandlerCommand::Resend(fragment_index));
+            }
+        }
+    }
+
+    fn process_confirmed_command(&mut self, fragment_index: u64) -> bool {
+        self.received_acks.insert(fragment_index);
+        self.received_acks.len() == self.fragments.len()
+    }
+
+    fn process_update_header_command(&mut self, source_routing_header: &mut SourceRoutingHeader) {
+        match self.last_header_update_time.elapsed() {
+            Ok(elapsed) => {
+                if elapsed > Duration::from_millis(100) {
+                    *source_routing_header = self.find_new_routing_header();
+                    self.last_header_update_time = SystemTime::now();
+                }
+            },
+            Err(err) => {
+                log::error!("{}", err.to_string());
+                panic!("{}", err.to_string())
+            }
+        }
     }
 
     fn notify_transmitter(&self, event: TransmissionHandlerEvent) {
@@ -136,7 +159,7 @@ impl TransmissionHandler {
         }
     }
 
-    fn create_packet(&self, fragment: Fragment, source_routing_header: SourceRoutingHeader) -> Packet {
+    fn create_packet_for_fragment(&self, fragment: Fragment, source_routing_header: SourceRoutingHeader) -> Packet {
         Packet {
             routing_header: source_routing_header,
             session_id: self.session_id,
@@ -146,7 +169,7 @@ impl TransmissionHandler {
 
     fn find_new_routing_header(&self) -> SourceRoutingHeader {
         loop {
-            let hops = self.network_controller.get_path(self.destination_node_id);
+            let hops = self.network_controller.get_path(self.destination);
             if let Some(hops) = hops {
                 let source_routing_header = SourceRoutingHeader {
                     hop_index: 0,
@@ -163,7 +186,6 @@ impl TransmissionHandler {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::thread::JoinHandle;
     use crossbeam_channel::unbounded;
     use super::*;
     use messages::{ChatResponse, Message, MessageType, ResponseType};
@@ -243,7 +265,7 @@ mod tests {
             session_id: 51,
             pack_type: PacketType::MsgFragment(transmission_handler.fragments[0].clone()),
         };
-        assert_eq!(expected_packet, transmission_handler.create_packet(transmission_handler.fragments[0].clone(), SourceRoutingHeader { hop_index: 0, hops: vec![] }))
+        assert_eq!(expected_packet, transmission_handler.create_packet_for_fragment(transmission_handler.fragments[0].clone(), SourceRoutingHeader { hop_index: 0, hops: vec![] }))
     }
 
     /*

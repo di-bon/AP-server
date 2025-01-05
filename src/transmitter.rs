@@ -301,7 +301,7 @@ impl Transmitter {
                 let command = TransmissionHandlerCommand::Resend(fragment_index);
                 self.send_transmission_handler_command(session_id, command, source);
             },
-            NackType::ErrorInRouting(next_hop) => {
+            NackType::ErrorInRouting(_next_hop) => {
                 let fragment_index = nack.fragment_index;
 
                 let command = TransmissionHandlerCommand::UpdateHeader;
@@ -310,7 +310,7 @@ impl Transmitter {
                 let command = TransmissionHandlerCommand::Resend(fragment_index);
                 self.send_transmission_handler_command(session_id, command, source);
             },
-            NackType::UnexpectedRecipient(unexpected_recipient_id) => {
+            NackType::UnexpectedRecipient(_unexpected_recipient_id) => {
                 // don't do anything, case already handled by updating the network_controller
             }
             NackType::DestinationIsDrone => {

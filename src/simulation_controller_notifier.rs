@@ -13,12 +13,16 @@ impl Debug for SimulationControllerNotifier {
 }
 
 impl SimulationControllerNotifier {
+    /// Returns a new instance of SimulationControllerNotifier
     pub fn new(simulation_controller_tx: Sender<NodeEvent>) -> Self {
         Self {
             simulation_controller_tx,
         }
     }
 
+    /// Sends a NodeEvent into the channel shared with the simulation controller
+    /// # Panic
+    /// Panics if the transmission fails
     pub fn send_event(&self, node_event: NodeEvent) {
         match self.simulation_controller_tx.send(node_event.clone()) {
             Ok(()) => log::info!("Node event {node_event:?} sent"),

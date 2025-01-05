@@ -1,8 +1,8 @@
 // TODO: remove this when project is finished
-#![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(unused_must_use)]
-#![allow(clippy::missing_panics_doc)]
+// #![allow(dead_code)]
+// #![allow(unused_variables)]
+// #![allow(unused_must_use)]
+// #![allow(clippy::missing_panics_doc)]
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

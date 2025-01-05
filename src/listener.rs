@@ -21,16 +21,17 @@ pub enum ListenerCommand {
 #[derive(Debug, Clone)]
 pub struct Listener {
     node_id: NodeId,
-    // listener -> transmitter
-    listener_to_transmitter_tx: Sender<TransmitterInternalCommand>, // this should only transmit packets of all types but PacketType::MsgFragment(Fragment)
-    // se -> server_logic
-    listener_to_logic_tx: Sender<Message>, // this should only transmit reassembled messages -> its type is high level message, not packet!
-    // drone(s) -> listener
+    // channel to communicate with transmitter some actions to perform when certain packets are received
+    listener_to_transmitter_tx: Sender<TransmitterInternalCommand>,
+    // channel to forward reassembled messages
+    listener_to_logic_tx: Sender<Message>,
+    // listener public channel where drones send packets
     drones_to_listener_rx: Receiver<Packet>,
+    // channel to listen on to receive `ListenerCommand`s
     command_rx: Receiver<ListenerCommand>,
     simulation_controller_notifier: Arc<SimulationControllerNotifier>,
-    // HashMap containing all the pairs (session_id, Storer)
-    storers: HashMap<(NodeId, u64), Storer>, // associates a tuple of (source, session_id) to a Storer
+    // HashMap containing all the pairs ((source, session_id), Storer)
+    storers: HashMap<(NodeId, u64), Storer>,
 }
 
 impl PartialEq for Listener {
@@ -59,18 +60,19 @@ impl Listener {
         }
     }
 
+    /// Makes the Listener work
+    /// # Panic
+    /// Panics if
     pub fn run(&mut self) {
         loop {
             select! {
                 recv(self.drones_to_listener_rx) -> packet => {
-                    match packet {
-                        Ok(packet) => {
-                            log::info!("Received packet {packet}");
-                            self.process_drone_packet(packet);
-                        },
-                        Err(err) => {
-                            panic!("Listener cannot receive packets from drones channel");
-                        }
+                    if let Ok(packet) = packet {
+                        log::info!("Received packet {packet}");
+                        self.process_drone_packet(packet);
+                    } else {
+                        log::error!("Listener cannot receive packets from drones channel");
+                        panic!("Listener cannot receive packets from drones channel");
                     }
                 },
                 recv(self.command_rx) -> command => {
@@ -78,19 +80,22 @@ impl Listener {
                         match command {
                             ListenerCommand::Quit => break,
                         }
+                    } else {
+                        log::error!("Listener cannot receive packets from command channel");
+                        panic!("Listener cannot receive packets from command channel");
                     }
                 }
             }
         }
     }
 
-    /// Checks the readiness for the `Storer` associated to the `session_id`. Returns `None` if there is no `Storer` associated to the given `session_id`
+    /// Checks the readiness for the `Storer` associated to the `key: (NodeId, session_id)`. Returns `None` if there is no `Storer` associated to the given `key`
     fn check_storer(&self, key: (NodeId, u64)) -> Option<bool> {
         let storer = self.storers.get(&key)?;
         Some(storer.is_ready())
     }
 
-    /// Stores a `Fragment` into the `Storer` for the given `(NodeId, session_id)`
+    /// Stores a `Fragment` into the `Storer` for the given `key: (NodeId, session_id)`
     fn store_fragment(&mut self, key: (NodeId, u64), fragment: Fragment) {
         let storer = self.storers.get_mut(&key);
         match storer {
@@ -107,6 +112,9 @@ impl Listener {
     }
 
     /// Processes a `Packet` received from the connected drones based on the `PacketType`
+    /// # Panic
+    /// - Panics if there is no hop for the given hop_index in packet.routing_header field
+    /// - Panics if there is no Storer for a key that was already used (and the message is yet to be reassembled)
     fn process_drone_packet(&mut self, packet: Packet) {
         // notify simulation controller
         let event = NodeEvent::PacketReceived(packet.clone());
@@ -158,9 +166,7 @@ impl Listener {
                 match self.storers.get(&key) {
                     Some(storer) => {
                         if storer.is_ready() {
-                            log::info!(
-                                "Storer for session {session_id} is ready for message reassemble"
-                            );
+                            log::info!("Storer for session {session_id} is ready for message reassemble");
 
                             let fragments = storer.get_fragments();
                             let message = NaiveAssembler::reassemble(&fragments);
@@ -212,21 +218,24 @@ impl Listener {
         }
     }
 
-    /// Forwards a `Packet` to `Transmitter`
-    /// If a `PacketType::MsgFragment` is forwarded, the relative `ACK` will be generated and sent
-    /// If another `PacketType` is forwarded, the `Transmitter` will update the network graph accordingly
+    /// Sends a `TransmitterInternalCommand` to `Transmitter`
+    /// # Panic
+    /// Panics if the transmission to `Transmitter` fails
     fn send_command_to_transmitter(&self, command: TransmitterInternalCommand) {
         match self.listener_to_transmitter_tx.send(command) {
             Ok(()) => {
-                log::info!("Packet successfully forwarded to transmitter");
+                log::info!("Command successfully sent to transmitter");
             }
-            Err(err) => {
-                log::warn!("Couldn't forward packet to transmitter");
-                panic!("Listener cannot send internal message to transmitter");
+            Err(SendError(command)) => {
+                log::warn!("Listener cannot send command {command:?} to transmitter");
+                panic!("Listener cannot send command {command:?} to transmitter");
             }
         }
     }
 
+    /// Sends a `Message` into logic channel
+    /// # Panic
+    /// Panics if the transmission to `Logic` fails
     fn send_message_to_logic(&self, message: Message) {
         match self.listener_to_logic_tx.send(message.clone()) {
             Ok(()) => {
@@ -238,6 +247,9 @@ impl Listener {
         }
     }
 
+    /// Return the source (i.e. first hop) for the given `SourceRoutingHeader`
+    /// # Panic
+    /// Panics if there is no source in the given `SourceRoutingHeader`
     fn get_source(routing_header: &SourceRoutingHeader) -> NodeId {
         match routing_header.source() {
             Some(source) => source,

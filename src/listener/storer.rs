@@ -2,22 +2,22 @@ use std::collections::HashMap;
 use wg_2024::packet::Fragment;
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct Storer {
+pub struct Storer {
     fragment_count: usize,
     fragments: HashMap<u64, Fragment>,
 }
 
 impl Storer {
     /// Creates a new instance of Storer with the given fragment count
-    pub(super) fn new(fragment_count: usize) -> Self {
+    fn new(fragment_count: usize) -> Self {
         Self {
             fragment_count,
-            fragments: Default::default(),
+            fragments: HashMap::default(),
         }
     }
 
     /// Creates a new instance of Storer from a Fragment, setting the fragment_count
-    pub(super) fn new_from_fragment(fragment: Fragment) -> Self {
+    pub fn new_from_fragment(fragment: Fragment) -> Self {
         let fragment_count = fragment.total_n_fragments as usize;
         let mut result = Self::new(fragment_count);
         result.insert_fragment(fragment);
@@ -25,7 +25,9 @@ impl Storer {
     }
 
     /// Inserts a fragment into Storer
-    pub(super) fn insert_fragment(&mut self, fragment: Fragment) {
+    /// # Panic
+    /// Panics if fragment.fragment_index is equal or exceeds self.fragment_count
+    pub fn insert_fragment(&mut self, fragment: Fragment) {
         if (fragment.fragment_index as usize) >= self.fragment_count {
             log::error!("fragment index {} out of bounds", fragment.fragment_index);
             panic!("fragment index {} out of bounds", fragment.fragment_index);
@@ -34,13 +36,13 @@ impl Storer {
         self.fragments.insert(fragment.fragment_index, fragment);
     }
 
-    /// Checks whether all the fragments for this session_id have been received
-    pub(super) fn is_ready(&self) -> bool {
+    /// Checks whether all the fragments for this Storer have been received
+    pub fn is_ready(&self) -> bool {
         self.fragments.len() == self.fragment_count
     }
 
     /// Returns a Vec<Fragment> containing all the received fragments
-    pub(super) fn get_fragments(&self) -> Vec<Fragment> {
+    pub fn get_fragments(&self) -> Vec<Fragment> {
         let mut vector = self
             .fragments
             .iter()
