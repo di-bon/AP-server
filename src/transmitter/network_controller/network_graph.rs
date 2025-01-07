@@ -39,6 +39,7 @@ impl PartialEq for NetworkGraph {
 impl Eq for NetworkGraph {}
 
 impl NetworkGraph {
+    /// Returns a new instance of `NetworkGraph`
     pub(super) fn new(
         owner_node_id: NodeId,
         owner_node_type: NodeType,
@@ -52,6 +53,9 @@ impl NetworkGraph {
         result
     }
 
+    /// Inserts a new node with into `NetworkGraph`. This function does NOT check whether there
+    /// already is a node with the passed `node_id: NodeId`. If that happens, there may be issues
+    /// with the path finding, so call `insert_node_if_not_present` to insert a new node
     fn insert_node(&self, node_id: NodeId, node_type: NodeType) {
         let node = NetworkNode::new(node_id, node_type);
         let node = RwLock::new(node);
@@ -60,6 +64,7 @@ impl NetworkGraph {
         log::info!("Inserted node with NodeId {node_id}");
     }
 
+    /// Inserts a new node with into `NetworkGraph` if there is no node with the required node_id: NodeId`
     fn insert_node_if_not_present(&self, node_id: NodeId, node_type: NodeType) {
         let insert_node = {
             let nodes = self.nodes.read().unwrap();
@@ -106,6 +111,7 @@ impl NetworkGraph {
         }
     }
 
+    /// Deletes a node from `NetworkGraph`
     fn delete_node(&self, node_id: NodeId) {
         let index = self
             .nodes

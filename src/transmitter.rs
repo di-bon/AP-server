@@ -74,6 +74,7 @@ impl PartialEq for Transmitter {
 impl Eq for Transmitter { }
 
 impl Transmitter {
+    /// Returns a new instance of `Transmitter`
     pub fn new(
         node_id: NodeId,
         node_type: NodeType,
@@ -105,10 +106,12 @@ impl Transmitter {
         }
     }
 
+    /// Returns the value of `self.node_id`
     pub fn get_node_id(&self) -> NodeId {
         self.node_id
     }
 
+    /// Starts the `Transmitter`, allowing it to process any message sent to it
     pub fn run(&mut self) {
         // when run is called, transmitter should instantaneously flood the network to discover routes
         loop {
@@ -158,7 +161,7 @@ impl Transmitter {
         }
     }
 
-    /// Processes a message received from server logic
+    /// Processes a `Message` received from the logic channel
     fn process_high_level_message(&mut self, message: Message, destination_id: NodeId) {
         let (command_tx, command_rx) = unbounded::<TransmissionHandlerCommand>();
 
@@ -181,6 +184,7 @@ impl Transmitter {
         self.transmission_handlers.insert(session_id, command_tx);
     }
 
+    /// Processes a `TransmitterInternalCommand` received from `Gateway`
     fn process_gateway_command(&self, command: TransmitterInternalCommand) {
         match &command {
             TransmitterInternalCommand::SendNack {session_id, nack, destination } => {
@@ -201,6 +205,7 @@ impl Transmitter {
         }
     }
 
+    /// Sends a `TransmissionHandlerCommand` to the `TransmissionHandler` associated to the given `session_id`
     fn send_transmission_handler_command(&self, session_id: u64, command: TransmissionHandlerCommand, source: NodeId) {
         let handler_channel = match self.transmission_handlers.get(&session_id) {
             Some(channel) => {
@@ -216,7 +221,7 @@ impl Transmitter {
                     destination: source,
                 };
 
-                self.gateway.propagate_command_to_transmitter(command);
+                self.gateway.send_command_to_transmitter(command);
 
                 return;
             },
@@ -230,6 +235,7 @@ impl Transmitter {
         }
     }
 
+    /// Processes a `TransmitterInternalCommand`
     fn process_transmitter_internal_command(&self, command: TransmitterInternalCommand) {
         match command {
             TransmitterInternalCommand::SendAckFor { session_id, fragment_index, destination} => {
@@ -245,12 +251,11 @@ impl Transmitter {
                     session_id,
                     self.gateway.clone(),
                     self.network_controller.clone(),
-                    destination,
                     Duration::from_millis(2000),
                 );
 
                 thread::spawn(move || {
-                   handler.send_packet();
+                   handler.send_packet(destination);
                 });
             }
             TransmitterInternalCommand::ForwardAckTo { session_id, ack, source } => {
@@ -269,12 +274,11 @@ impl Transmitter {
                     session_id,
                     self.gateway.clone(),
                     self.network_controller.clone(),
-                    destination,
                     Duration::from_millis(2000),
                 );
 
                 thread::spawn(move || {
-                    handler.send_packet();
+                    handler.send_packet(destination);
                 });
             }
             TransmitterInternalCommand::ProcessFloodRequest(flood_request) => {
@@ -294,6 +298,7 @@ impl Transmitter {
         }
     }
 
+    /// Process a `Nack`, updating the `NetworkController` and, if needed, the required `TransmissionHandler`
     fn process_nack(&self, session_id: u64, nack: Nack, source: NodeId) {
         self.network_controller.update_from_nack(&nack, source);
         match nack.nack_type {

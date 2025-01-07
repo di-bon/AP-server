@@ -6,26 +6,26 @@ use wg_2024::packet::{Packet, PacketType};
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::network_controller::NetworkController;
 
-/// A `TransmissionHandler` struct that will handle the fragmentation and packet creation, sending
-/// said packets to the gateway. All created packets will share the same `SourceRoutingHeader`,
-/// unless it gets updated using the `update_source_routing_header` method
+/// A `SinglePacketTransmissionHandler` struct that will send a single `Packet`, automatically
+/// finding an appropriate `SourceRoutingHeader`
 pub struct SinglePacketTransmissionHandler {
     packet_type: PacketType,
     source_id: NodeId,
     session_id: u64,
     gateway: Arc<Gateway>,
     network_controller: Arc<NetworkController>,
-    destination_node_id: NodeId,
     backoff_time: Duration,
 }
 
 impl SinglePacketTransmissionHandler {
-    pub fn new(packet_type: PacketType, source_id: NodeId, session_id: u64, gateway: Arc<Gateway>, network_controller: Arc<NetworkController>, destination_node_id: NodeId, backoff_time: Duration) -> Self {
-        Self { packet_type, source_id, session_id, gateway, network_controller, destination_node_id, backoff_time }
+    /// Returns a new instance of `SinglePacketTransmissionHandler`
+    pub fn new(packet_type: PacketType, source_id: NodeId, session_id: u64, gateway: Arc<Gateway>, network_controller: Arc<NetworkController>, backoff_time: Duration) -> Self {
+        Self { packet_type, source_id, session_id, gateway, network_controller, backoff_time }
     }
 
-    pub fn send_packet(&self) {
-        let source_routing_header = self.find_new_routing_header();
+    /// Sends a `Packet` to its `destination`
+    pub fn send_packet(&self, destination: NodeId) {
+        let source_routing_header = self.find_new_routing_header(destination);
 
        let packet = Packet {
            routing_header: source_routing_header,
@@ -36,9 +36,10 @@ impl SinglePacketTransmissionHandler {
         self.gateway.forward(packet);
     }
 
-    fn find_new_routing_header(&self) -> SourceRoutingHeader {
+    /// Returns a `SourceRoutingHeader` for the required `destination`
+    fn find_new_routing_header(&self, destination: NodeId) -> SourceRoutingHeader {
         loop {
-            let hops = self.network_controller.get_path(self.destination_node_id);
+            let hops = self.network_controller.get_path(destination);
             if let Some(hops) = hops {
                 let source_routing_header = SourceRoutingHeader {
                     hop_index: 0,

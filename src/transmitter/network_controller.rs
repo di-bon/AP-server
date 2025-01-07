@@ -49,7 +49,7 @@ impl NetworkController {
 
         let flood_request = FloodRequest::initialize(flood_id, self.node_id, self.node_type);
 
-        self.gateway.send_flood(flood_request);
+        self.gateway.send_flood_request(flood_request);
     }
 
     pub fn get_path(&self, to: NodeId) -> Option<Vec<NodeId>> {

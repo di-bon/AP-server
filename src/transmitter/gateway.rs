@@ -24,6 +24,7 @@ impl PartialEq<Self> for Gateway {
 impl Eq for Gateway {}
 
 impl Gateway {
+    /// Returns a new instance of `Gateway`
     pub fn new(
         node_id: NodeId,
         neighbors: HashMap<NodeId, Sender<Packet>>,
@@ -38,8 +39,8 @@ impl Gateway {
         }
     }
 
-    /// Sends a Packet to every connected neighboring node
-    pub fn send_flood(&self, flood_request: FloodRequest) {
+    /// Sends a `FloodRequest` to every connected neighboring node
+    pub fn send_flood_request(&self, flood_request: FloodRequest) {
         let packet = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
@@ -54,7 +55,10 @@ impl Gateway {
         }
     }
 
-    /// Sends a packet on the given channel. If channel.send fails, it sends an ErrorInRouting back to listener
+    /// Sends a `Packet` on the given channel.
+    ///
+    /// If `channel.send` fails, it sends an `ErrorInRouting`
+    /// (using `TransmitterInternalCommand::ProcessNack`) back to the `Transmitter`
     fn send_on_channel_checked(&self, channel: &Sender<Packet>, packet: Packet, next_hop: NodeId) {
         match channel.send(packet.clone()) {
             Ok(()) => {
@@ -73,12 +77,15 @@ impl Gateway {
                     },
                     source: self.node_id,
                 };
-                self.propagate_command_to_transmitter(command);
+                self.send_command_to_transmitter(command);
             }
         }
     }
 
-    /// Sends a FloodResponse packet
+    /// Sends a `FloodResponse` to a neighbor based on the `path_trace`
+    /// # Panics
+    /// - Panics if the `path_trace` does not have a next hop to forward the response
+    /// - Panics if there is no channel for the required next hop
     pub fn send_flood_response(&self, flood_response: FloodResponse) {
         let forward_to = match flood_response.path_trace.get(1) {
             Some((node_id, _node_type)) => *node_id,
@@ -108,8 +115,11 @@ impl Gateway {
         self.send_on_channel_checked(channel, wrapper_packet, forward_to);
     }
 
-    /// Forwards a Packet based on its SourceRoutingHeader.
-    /// It expects to receive Packets with hop_index set to 0
+    /// Forwards a `Packet` based on its `SourceRoutingHeader`.
+    /// It expects to receive `Packet`s with `hop_index` set to `0`
+    /// # Panics
+    /// - Panics if there is no next hop in the header
+    /// - Panics if there is no channel associated to the required next hop
     pub fn forward(&self, mut packet: Packet) {
         let next_hop = match packet.routing_header.next_hop() {
             Some(next_hop) => next_hop,
@@ -175,7 +185,7 @@ impl Gateway {
     }
      */
 
-    /// Adds a channel to the connected neighbors
+    /// Adds or updates a channel associated to the `node_id`
     fn add_neighbor(&mut self, node_id: NodeId, channel: Sender<Packet>) {
         match self.neighbors.insert(node_id, channel) {
             Some(_) => log::info!("Updated neighbor's channel associated to NodeId {node_id}"),
@@ -191,7 +201,10 @@ impl Gateway {
         }
     }
 
-    pub fn propagate_command_to_transmitter(&self, command: TransmitterInternalCommand) {
+    /// Sends a `TransmitterInternalCommand` to `Transmitter`
+    /// # Panics
+    /// - Panics if the communication fails
+    pub fn send_command_to_transmitter(&self, command: TransmitterInternalCommand) {
         match self.gateway_to_transmitter_tx.send(command) {
             Ok(()) => {}
             Err(SendError(command)) => {
@@ -451,7 +464,7 @@ mod test {
             path_trace: vec![(gateway_node_id, NodeType::Server)],
         };
 
-        gateway.send_flood(flood_request.clone());
+        gateway.send_flood_request(flood_request.clone());
 
         let expected = Packet {
             routing_header: SourceRoutingHeader {

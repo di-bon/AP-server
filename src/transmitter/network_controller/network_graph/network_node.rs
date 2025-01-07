@@ -27,6 +27,7 @@ impl PartialEq for NetworkNode {
 impl Eq for NetworkNode {}
 
 impl NetworkNode {
+    /// Returns a new instance of `NetworkNode`
     pub fn new(node_id: NodeId, node_type: NodeType) -> Self {
         Self {
             node_id,
@@ -36,11 +37,13 @@ impl NetworkNode {
         }
     }
 
+    /// Inserts an edge from the current `NetworkNode` to the given `NodeId`
     pub fn insert_edge(&self, to: NodeId) {
         self.neighbors.write().unwrap().push(to);
         log::info!("Inserted edge from {} to {to}", self.node_id);
     }
 
+    /// Removes an edge from the current `NetworkNode` to the given `NodeId`
     pub fn remove_edge(&self, to: NodeId) {
         let index = self
             .neighbors
@@ -56,16 +59,19 @@ impl NetworkNode {
         }
     }
 
+    /// Increments the `num_of_dropped_packets` field
     pub fn increment_dropped_packets(&mut self) {
         self.num_of_dropped_packets += 1;
         log::info!("num_of_dropped_packets incremented");
     }
 
+    /// Set the `num_of_dropped_packets` to `0`
     pub fn reset_num_of_dropped_packets(&mut self) {
         self.num_of_dropped_packets = 0;
         log::info!("num_of_dropped_packets reset to 0");
     }
 
+    /// Returns the value of `num_of_dropped_packets` field
     pub fn get_num_of_dropped_packets(&self) -> u64 {
         self.num_of_dropped_packets
     }

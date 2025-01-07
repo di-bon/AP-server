@@ -14,8 +14,8 @@ use crate::transmitter::{TransmissionHandlerCommand, TransmissionHandlerEvent};
 use crate::transmitter::gateway::Gateway;
 use crate::transmitter::network_controller::NetworkController;
 
-/// A `TransmissionHandler` struct that will handle the fragmentation and packet creation, sending
-/// said packets to the gateway.
+/// A `TransmissionHandler` struct that will transmit a `Message`, fragmenting it into `Fragment`s,
+/// creating the required `Packet`s and sending them via the `Gateway`
 pub struct TransmissionHandler {
     message: Message,
     fragments: Vec<Fragment>,
