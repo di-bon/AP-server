@@ -149,9 +149,10 @@ impl TransmissionHandler {
     }
 
     fn notify_transmitter(&self, event: TransmissionHandlerEvent) {
-        match self.transmission_handler_event_tx.send(event.clone()) {
+        log::info!("Transmission handler for session {} is sending {:?} to transmitter", self.session_id, event);
+        match self.transmission_handler_event_tx.send(event) {
             Ok(()) => {
-                log::info!("Transmission handler for session {} sent {:?} to transmitter", self.session_id, event);
+                log::info!("Transmission handler for session {} sent a TransmissionHandlerEvent to transmitter", self.session_id);
             }
             Err(err) => {
                 log::warn!("Transmission handler for session {} cannot send TransmissionHandlerEvent messages to transmitter", self.session_id);
