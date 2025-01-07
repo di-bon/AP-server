@@ -75,7 +75,9 @@ impl NullPointerDibServer {
             simulation_controller_notifier.clone(),
         );
 
-        let server_logic = ServerLogic::new(internal_server_logic_to_transmitter_tx, internal_listener_to_server_logic_rx);
+        let (server_logic_tx, server_logic_rx) = unbounded();
+
+        let server_logic = ServerLogic::new(node_id, internal_server_logic_to_transmitter_tx, internal_listener_to_server_logic_rx, server_logic_rx);
 
         assert_eq!(transmitter.get_node_id(), listener.get_node_id());
         assert_eq!(transmitter.get_node_id(), server_logic.get_node_id());
