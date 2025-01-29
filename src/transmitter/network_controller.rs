@@ -78,18 +78,16 @@ impl NetworkController {
             NackType::Dropped => {
                 // Update num_of_dropped_packets
                 self.network_graph.read().unwrap().increment_num_of_dropped_packets(source);
-
-                let event = NodeEvent::UpdateDroppedPackets {
-                    node: source,
-                    num_of_dropped_packets: self.network_graph.read().unwrap().get_num_of_dropped_packets(source).unwrap(), // TODO: maybe consider refactoring this?
-                };
             }
         }
     }
 
     fn send_known_network_graph(&self) {
         let event_graph = self.get_event_graph();
-        let event = NodeEvent::KnownNetworkGraph(event_graph);
+        let event = NodeEvent::KnownNetworkGraph {
+            source: self.node_id,
+            graph: event_graph,
+        };
         self.simulation_controller_notifier.send_event(event);
     }
 
@@ -111,7 +109,6 @@ impl NetworkController {
             let result_node = EventNetworkNode {
                 node_id: network_node.node_id,
                 node_type: network_node.node_type,
-                num_of_dropped_packets: network_node.num_of_dropped_packets,
                 neighbors,
             };
             nodes.push(result_node);

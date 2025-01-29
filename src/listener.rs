@@ -121,8 +121,8 @@ impl Listener {
     /// - Panics if there is no Storer for a key that was already used (and the message is yet to be reassembled)
     fn process_drone_packet(&mut self, packet: Packet) {
         // notify simulation controller
-        let event = NodeEvent::PacketReceived(packet.clone());
-        self.simulation_controller_notifier.send_event(event);
+        // let event = NodeEvent::PacketReceived(packet.clone());
+        // self.simulation_controller_notifier.send_event(event);
 
         match packet.pack_type {
             PacketType::MsgFragment(ref fragment) => {

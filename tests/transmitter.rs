@@ -118,7 +118,7 @@ fn check_message_handling_and_forwarding() {
     // check NodeEvents sent to SimulationControllerNotifier
 
     let event = simulation_controller_rx.recv().unwrap();
-    assert!(matches!(event, NodeEvent::KnownNetworkGraph(_)));
+    assert!(matches!(event, NodeEvent::KnownNetworkGraph { .. }));
 
     let event = simulation_controller_rx.recv().unwrap();
     assert!(matches!(event, NodeEvent::StartingMessageTransmission(_)));
@@ -351,7 +351,7 @@ fn check_nack_processing() {
     listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     let event = simulation_controller_rx.recv().unwrap();
-    assert!(matches!(event, NodeEvent::KnownNetworkGraph(_)));
+    assert!(matches!(event, NodeEvent::KnownNetworkGraph { .. }));
 
     let flood_response = FloodResponse {
         flood_id: 0,
@@ -370,7 +370,7 @@ fn check_nack_processing() {
     listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     let event = simulation_controller_rx.recv().unwrap();
-    assert!(matches!(event, NodeEvent::KnownNetworkGraph(_)));
+    assert!(matches!(event, NodeEvent::KnownNetworkGraph { .. }));
 
     // send fragments
 
@@ -410,7 +410,7 @@ fn check_nack_processing() {
     listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     let event = simulation_controller_rx.recv().unwrap();
-    assert!(matches!(event, NodeEvent::KnownNetworkGraph(_)));
+    assert!(matches!(event, NodeEvent::KnownNetworkGraph { .. }));
 
     let event = simulation_controller_rx.recv().unwrap();
     assert!(matches!(event, NodeEvent::PacketSent(_)));
