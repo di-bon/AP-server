@@ -1,22 +1,18 @@
 mod storer;
 
 use crate::listener::storer::Storer;
-use assembler::naive_assembler::NaiveAssembler;
-use assembler::Assembler;
-use crossbeam_channel::{select, Receiver, SendError, Sender};
-use messages::node_event::NodeEvent;
-use std::collections::HashMap;
-use std::sync::Arc;
-use messages::Message;
-use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{Fragment, Nack, NackType, Packet, PacketType};
-use messages::MessageUtilities;
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
 use crate::transmitter::TransmitterInternalCommand;
-
-pub enum ListenerCommand {
-    Quit,
-}
+use assembler::naive_assembler::NaiveAssembler;
+use assembler::Assembler;
+use crossbeam_channel::{select, select_biased, Receiver, SendError, Sender};
+use messages::node_event::NodeEvent;
+use messages::Message;
+use messages::MessageUtilities;
+use std::collections::HashMap;
+use std::sync::Arc;
+use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::packet::{Fragment, Nack, NackType, Packet, PacketType};
 
 #[derive(Debug, Clone)]
 pub struct Listener {
@@ -38,6 +34,10 @@ impl PartialEq for Listener {
     fn eq(&self, other: &Self) -> bool {
         self.node_id == other.node_id && self.storers == other.storers
     }
+}
+
+pub enum ListenerCommand {
+    Quit,
 }
 
 impl Listener {
@@ -65,20 +65,10 @@ impl Listener {
     }
 
     /// Makes the Listener work
-    /// # Panic
-    /// Panics if
+    // TODO: add # Panics section
     pub fn run(&mut self) {
         loop {
-            select! {
-                recv(self.drones_to_listener_rx) -> packet => {
-                    if let Ok(packet) = packet {
-                        log::info!("Received packet {packet}");
-                        self.process_drone_packet(packet);
-                    } else {
-                        log::error!("Listener cannot receive packets from drones channel");
-                        panic!("Listener cannot receive packets from drones channel");
-                    }
-                },
+            select_biased! {
                 recv(self.command_rx) -> command => {
                     if let Ok(command) = command {
                         match command {
@@ -88,12 +78,23 @@ impl Listener {
                         log::error!("Listener cannot receive packets from command channel");
                         panic!("Listener cannot receive packets from command channel");
                     }
-                }
+                },
+                recv(self.drones_to_listener_rx) -> packet => {
+                    if let Ok(packet) = packet {
+                        log::info!("Received packet {packet}");
+                        self.process_drone_packet(packet);
+                    } else {
+                        log::error!("Listener cannot receive packets from drones channel");
+                        panic!("Listener cannot receive packets from drones channel");
+                    }
+                },
             }
         }
     }
 
-    /// Checks the readiness for the `Storer` associated to the `key: (NodeId, session_id)`. Returns `None` if there is no `Storer` associated to the given `key`
+    /// Checks the readiness for the `Storer` associated to the `key: (NodeId, session_id)`.
+    /// # Return
+    /// Returns `None` if there is no `Storer` associated to the given `key`
     fn check_storer(&self, key: (NodeId, u64)) -> Option<bool> {
         let storer = self.storers.get(&key)?;
         Some(storer.is_ready())
@@ -129,7 +130,14 @@ impl Listener {
                 log::info!("Processing a message fragment");
                 let session_id = packet.session_id;
 
-                let source = Self::get_source(&packet.routing_header);
+                let source = match packet.routing_header.source() {
+                    None => {
+                        log::error!("Received a packet with no source");
+                        panic!("Received a packet with no source");
+                    }
+                    Some(source) => source,
+                };
+                // let source = Self::get_source(&packet.routing_header);
 
                 let current_hop_id = match packet.routing_header.current_hop() {
                     Some(id) => id,
@@ -160,7 +168,11 @@ impl Listener {
                     return;
                 }
 
-                let command = TransmitterInternalCommand::SendAckFor { session_id, fragment_index: fragment.fragment_index, destination: source };
+                let command = TransmitterInternalCommand::SendAckFor {
+                    session_id,
+                    fragment_index: fragment.fragment_index,
+                    destination: source,
+                };
                 self.send_command_to_transmitter(command);
 
                 let key = (source, session_id);
@@ -170,7 +182,9 @@ impl Listener {
                 match self.storers.get(&key) {
                     Some(storer) => {
                         if storer.is_ready() {
-                            log::info!("Storer for session {session_id} is ready for message reassemble");
+                            log::info!(
+                                "Storer for session {session_id} is ready for message reassemble"
+                            );
 
                             let fragments = storer.get_fragments();
                             let message = NaiveAssembler::reassemble(&fragments);
@@ -188,9 +202,16 @@ impl Listener {
                         panic!("Storer for session {session_id} not found. At this point however it should exist");
                     }
                 }
-            },
+            }
             PacketType::Nack(nack) => {
-                let source = Self::get_source(&packet.routing_header);
+                let source = match packet.routing_header.source() {
+                    None => {
+                        log::error!("Received a packet with no source");
+                        panic!("Received a packet with no source");
+                    }
+                    Some(source) => source,
+                };
+                // let source = Self::get_source(&packet.routing_header);
 
                 let command = TransmitterInternalCommand::ProcessNack {
                     session_id: packet.session_id,
@@ -199,9 +220,16 @@ impl Listener {
                 };
 
                 self.send_command_to_transmitter(command);
-            },
+            }
             PacketType::Ack(ack) => {
-                let source = Self::get_source(&packet.routing_header);
+                let source = match packet.routing_header.source() {
+                    None => {
+                        log::error!("Received a packet with no source");
+                        panic!("Received a packet with no source");
+                    }
+                    Some(source) => source,
+                };
+                // let source = Self::get_source(&packet.routing_header);
 
                 let command = TransmitterInternalCommand::ForwardAckTo {
                     session_id: packet.session_id,
@@ -244,7 +272,7 @@ impl Listener {
         match self.listener_to_logic_tx.send(message) {
             Ok(()) => {
                 log::info!("Listener successfully forwarded a message to server logic");
-            },
+            }
             Err(SendError(message)) => {
                 panic!("Listener cannot forward message {message:?} to server logic");
             }
@@ -254,6 +282,7 @@ impl Listener {
     /// Return the source (i.e. first hop) for the given `SourceRoutingHeader`
     /// # Panic
     /// Panics if there is no source in the given `SourceRoutingHeader`
+    #[deprecated]
     fn get_source(routing_header: &SourceRoutingHeader) -> NodeId {
         if let Some(source) = routing_header.source() {
             source
@@ -261,7 +290,6 @@ impl Listener {
             log::error!("Received a packet with no source");
             panic!("Received a packet with no source");
         }
-
     }
 }
 
@@ -269,11 +297,11 @@ impl Listener {
 mod tests {
     use super::*;
     use crossbeam_channel::unbounded;
+    use messages::{MessageType, RequestType, TextRequest};
     use ntest::timeout;
     use std::sync::{Arc, Mutex, RwLock};
     use std::thread;
     use std::time::Duration;
-    use messages::{MessageType, RequestType, TextRequest};
     use wg_2024::network::SourceRoutingHeader;
     use wg_2024::packet::{
         Ack, FloodRequest, FloodResponse, Nack, NackType, NodeType, Packet, PacketType,
@@ -300,7 +328,8 @@ mod tests {
         let (listener_public_tx, listener_public_rx) = unbounded();
 
         let (simulation_controller_tx, simulation_controller_rx) = unbounded();
-        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier =
+            SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
         let listener = Listener::new(
@@ -340,7 +369,8 @@ mod tests {
         let (server_logic_tx, _server_logic_rx) = unbounded::<Message>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
-        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier =
+            SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
         let expected = Listener {
@@ -373,7 +403,8 @@ mod tests {
         let (server_logic_tx, _server_logic_rx) = unbounded::<Message>();
         let (command_tx, command_rx) = unbounded::<ListenerCommand>();
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
-        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier =
+            SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
         let mut expected = Listener {
@@ -530,9 +561,7 @@ mod tests {
             _simulation_controller_rx,
         ) = create_listener_and_channels(1);
 
-        let handle = thread::spawn(move || {
-            listener.run()
-        });
+        let handle = thread::spawn(move || listener.run());
 
         let ack = Ack { fragment_index: 0 };
 
@@ -543,7 +572,10 @@ mod tests {
         };
 
         let ack = Packet {
-            routing_header: SourceRoutingHeader { hop_index: 1, hops: vec![5, 1] } ,
+            routing_header: SourceRoutingHeader {
+                hop_index: 1,
+                hops: vec![5, 1],
+            },
             session_id: 0,
             pack_type: PacketType::Ack(ack),
         };
@@ -630,7 +662,7 @@ mod tests {
             path_trace: vec![(10, NodeType::Client), (4, NodeType::Drone)],
         };
 
-        let expected = TransmitterInternalCommand::ProcessFloodRequest (flood_request.clone());
+        let expected = TransmitterInternalCommand::ProcessFloodRequest(flood_request.clone());
 
         let flood_request = Packet {
             routing_header: SourceRoutingHeader {
