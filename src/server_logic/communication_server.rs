@@ -1,16 +1,31 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use crossbeam_channel::{select, Receiver, SendError, Sender};
 use messages::{ChatRequest, ChatResponse, ErrorType, Message, MessageType, RequestType, ResponseType, ServerType, TextResponse};
+use rand::{random, Rng};
 use wg_2024::network::NodeId;
 use crate::server_logic::Command;
 
-pub struct CommunicationServer {
+pub struct CommunicationServer<'a> {
     node_id: NodeId,
     server_logic_to_transmitter_tx: Sender<Message>,
     listener_to_server_logic_rx: Receiver<Message>,
     command_rx: Receiver<Command>,
     registered: HashSet<NodeId>,
+    // messages: HashMap<NodeId, Vec<MessageInfo>>,
 }
+
+// struct MessageInfo {
+//     from: NodeId,
+//     message: String,
+// }
+//
+// impl MessageInfo {
+//     fn new(from: NodeId, message: String) -> Self {
+//         Self {
+//             from, message
+//         }
+//     }
+// }
 
 impl CommunicationServer {
     pub fn new(
@@ -25,6 +40,7 @@ impl CommunicationServer {
             listener_to_server_logic_rx,
             command_rx,
             registered: HashSet::new(),
+            // messages: HashMap::new(),
         }
     }
 
@@ -68,10 +84,14 @@ impl CommunicationServer {
             MessageType::Response(response_type) => {
                 self.process_response(session_id, source, response_type);
             }
-            MessageType::Error(_) => {
-                // TODO
+            MessageType::Error(error_type) => {
+                self.process_error(session_id, source, error_type);
             }
         }
+    }
+
+    fn process_error(&self, session_id: u64, source_id: NodeId, error_type: &ErrorType) {
+        log::warn!("From node {source_id} with session_id {session_id}, received error {error_type:?}");
     }
 
     fn process_request(&mut self, session_id: u64, source_id: NodeId, request_type: &RequestType) {
@@ -81,7 +101,7 @@ impl CommunicationServer {
                 let content = MessageType::Error(ErrorType::Unsupported(request_type.clone()));
                 let response = self.create_message(session_id, source_id, content);
                 self.send_message_to_transmitter(response);
-            },
+            }
             RequestType::ChatRequest(chat_request) => {
                 match chat_request {
                     ChatRequest::ClientList => {
@@ -94,16 +114,50 @@ impl CommunicationServer {
                         self.registered.insert(*node_id);
                     }
                     ChatRequest::SendMessage { from, to, message } => {
-                        // TODO
+                        if !self.is_registered(*from) {
+                            self.send_unregistered_error(session_id, *from);
+                            return;
+                        }
+                        if !self.is_registered(*to) {
+                            self.send_unregistered_error(session_id, *to);
+                            return;
+                        }
+                        
+                        // let message_info = MessageInfo::new(*from, message);
+                        // let mut entry = self.messages.entry(*to).or_insert(Vec::new());
+                        // entry.push(message_info);
+
+                        let mut rng = rand::rng();
+                        let forward_session_id: u64 = rng.random();
+                        let content = MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageFrom {
+                            from: *from,
+                            message: message.clone(),
+                        }));
+                        let message = self.create_message(forward_session_id, *to, content);
+                        self.send_message_to_transmitter(message);
+
+                        let content = MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent));
+                        let confirmation = self.create_message(session_id, *from, content);
+                        self.send_message_to_transmitter(confirmation);
                     }
                 }
-            },
+            }
             RequestType::DiscoveryRequest(()) => {
                 let content = MessageType::Response(ResponseType::DiscoveryResponse(ServerType::CommunicationServer));
                 let response = self.create_message(session_id, source_id, content);
                 self.send_message_to_transmitter(response);
-            },
+            }
         }
+    }
+
+    fn send_unregistered_error(&mut self, session_id: u64, from: NodeId) {
+        let content = MessageType::Error(ErrorType::Unregistered(from));
+        let error_message = self.create_message(session_id, from, content);
+        self.send_message_to_transmitter(error_message);
+    }
+
+    fn is_registered(&self, id: NodeId) -> bool {
+        self.registered.contains(&id)
     }
 
     fn create_message(&self, session_id: u64, destination: NodeId, content: MessageType) -> Message {
