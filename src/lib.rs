@@ -13,7 +13,6 @@ use messages::node_event::NodeEvent;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
 use crate::listener::{Listener, ListenerCommand};
-use crate::server_logic::ServerLogic;
 use crate::simulation_controller_notifier::SimulationControllerNotifier;
 use crate::transmitter::{Transmitter, TransmitterInternalCommand, TransmitterUserCommand};
 
@@ -28,7 +27,7 @@ pub mod test_utils;
 pub struct NullPointerDibServer {
     transmitter: Arc<Mutex<Transmitter>>,
     listener: Arc<Mutex<Listener>>,
-    server_logic: Arc<Mutex<ServerLogic>>
+    // server_logic: Arc<Mutex<TextServer>>
 }
 
 impl NullPointerDibServer {
@@ -48,7 +47,7 @@ impl NullPointerDibServer {
     ) -> Self {
         let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded::<TransmitterInternalCommand>();
         let (internal_listener_to_server_logic_tx, internal_listener_to_server_logic_rx) = unbounded::<Message>();
-        let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded::<(NodeId, Message)>();
+        let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded();
         let (listener_command_tx, listener_command_rx) = unbounded::<ListenerCommand>();
 
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
@@ -75,21 +74,23 @@ impl NullPointerDibServer {
             simulation_controller_notifier.clone(),
         );
 
+        /*
         let (server_logic_tx, server_logic_rx) = unbounded();
 
-        let server_logic = ServerLogic::new(node_id, internal_server_logic_to_transmitter_tx, internal_listener_to_server_logic_rx, server_logic_rx);
+        let server_logic = TextServer::new(node_id, internal_server_logic_to_transmitter_tx, internal_listener_to_server_logic_rx, server_logic_rx);
 
         assert_eq!(transmitter.get_node_id(), listener.get_node_id());
         assert_eq!(transmitter.get_node_id(), server_logic.get_node_id());
 
+         */
         let transmitter = Arc::new(Mutex::new(transmitter));
         let listener = Arc::new(Mutex::new(listener));
-        let server_logic = Arc::new(Mutex::new(server_logic));
+        // let server_logic = Arc::new(Mutex::new(server_logic));
 
         Self {
             transmitter,
             listener,
-            server_logic,
+            // server_logic,
         }
     }
 
@@ -123,6 +124,7 @@ impl NullPointerDibServer {
             transmitter.run();
         });
 
+        /*
         let server_logic = self.server_logic.clone();
         let server_logic_handle = thread::spawn(move || {
             let mut server_logic = match server_logic.lock() {
@@ -134,12 +136,13 @@ impl NullPointerDibServer {
             };
             server_logic.run();
         });
+         */
 
         // TODO: listen for commands (only shutdown) (either from channel or from CLI)
         // TODO: send shutdown command to listener and transmitter
 
         let _ = listener_handle.join();
-        let _ = server_logic_handle.join();
+        // let _ = server_logic_handle.join();
         let _ = transmitter_handle.join();
     }
 }
