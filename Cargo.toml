@@ -11,6 +11,9 @@ rand = "0.9.0-beta.1"
 assembler = { git = "https://github.com/The-Null-Pointer-Patrol/assembler.git" }
 messages = { git = "https://github.com/The-Null-Pointer-Patrol/messages.git", branch = "add-missing-messages"}
 cargo-llvm-cov = "0.6.15"
+ap_transmitter = { git = "https://github.com/di-bon/ap_transmitter.git", branch = "dev" }
+ap_listener = { git = "https://github.com/di-bon/ap_listener.git", branch = "dev" }
+ap_sc_notifier = { git = "https://github.com/di-bon/ap_sc_notifier.git" }
 
 [dev-dependencies]
 ntest = "0.7.2"

@@ -12,17 +12,17 @@ use messages::Message;
 use messages::node_event::NodeEvent;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
-use crate::listener::{Listener, ListenerCommand};
-use crate::simulation_controller_notifier::SimulationControllerNotifier;
-use crate::transmitter::{Transmitter, TransmitterInternalCommand, TransmitterUserCommand};
+// use crate::listener::{Listener, ListenerCommand};
+// use crate::simulation_controller_notifier::SimulationControllerNotifier;
+// use crate::transmitter::{Transmitter, TransmitterInternalCommand, TransmitterUserCommand};
+use ap_transmitter::{Transmitter, Command, LogicCommand};
+use ap_sc_notifier::SimulationControllerNotifier;
+use ap_listener::{Listener, ListenerCommand};
 
-mod transmitter;
-mod listener;
+// mod transmitter;
+// mod listener;
 mod server_logic;
-mod simulation_controller_notifier;
-
-#[cfg(any(test, feature = "integration-testing"))]
-pub mod test_utils;
+// mod simulation_controller_notifier;
 
 pub struct NullPointerDibServer {
     transmitter: Arc<Mutex<Transmitter>>,
@@ -45,15 +45,15 @@ impl NullPointerDibServer {
         drones_tx: HashMap<NodeId, Sender<Packet>>,
         simulation_controller_tx: Sender<NodeEvent>,
     ) -> Self {
-        let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded::<TransmitterInternalCommand>();
-        let (internal_listener_to_server_logic_tx, internal_listener_to_server_logic_rx) = unbounded::<Message>();
+        let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded();
+        let (internal_listener_to_server_logic_tx, internal_listener_to_server_logic_rx) = unbounded();
         let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded();
-        let (listener_command_tx, listener_command_rx) = unbounded::<ListenerCommand>();
+        let (listener_command_tx, listener_command_rx) = unbounded();
 
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
-        let (transmitter_command_tx, transmitter_command_rx) = unbounded::<TransmitterUserCommand>();
+        let (transmitter_command_tx, transmitter_command_rx) = unbounded();
 
         let transmitter = Transmitter::new(
             node_id,
