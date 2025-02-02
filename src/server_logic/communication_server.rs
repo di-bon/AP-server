@@ -5,7 +5,7 @@ use rand::{random, Rng};
 use wg_2024::network::NodeId;
 use crate::server_logic::Command;
 
-pub struct CommunicationServer<'a> {
+pub struct CommunicationServer {
     node_id: NodeId,
     server_logic_to_transmitter_tx: Sender<Message>,
     listener_to_server_logic_rx: Receiver<Message>,
@@ -122,7 +122,7 @@ impl CommunicationServer {
                             self.send_unregistered_error(session_id, *to);
                             return;
                         }
-                        
+
                         // let message_info = MessageInfo::new(*from, message);
                         // let mut entry = self.messages.entry(*to).or_insert(Vec::new());
                         // entry.push(message_info);
