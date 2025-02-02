@@ -37,15 +37,15 @@ impl TransmissionHandler {
         message: Message,
         gateway: Arc<Gateway>,
         network_controller: Arc<NetworkController>,
-        destination: NodeId,
         command_rx: Receiver<TransmissionHandlerCommand>,
         transmission_handler_event_tx: Sender<TransmissionHandlerEvent>,
         simulation_controller_notifier: Arc<SimulationControllerNotifier>,
         backoff_time: Duration,
     ) -> Self {
         let fragments = NaiveAssembler::disassemble(&message.stringify().into_bytes());
-        let source_id = message.source_id;
+        let source_id = message.source;
         let session_id = message.session_id;
+        let destination = message.destination;
         Self {
             message,
             fragments,
@@ -224,7 +224,6 @@ mod tests {
             message.clone(),
             gateway,
             network_controller,
-            destination_node_id,
             command_rx,
             transmission_handler_event_tx,
             simulation_controller_notifier.clone(),
@@ -237,7 +236,8 @@ mod tests {
     #[test]
     fn initialize() {
         let message = Message {
-            source_id: 0,
+            source: 0,
+            destination: 1,
             session_id: 0,
             content: MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent)),
         };
@@ -245,7 +245,8 @@ mod tests {
         let paths = vec![];
         let (transmission_handler, drone_rx, simulation_controller_rx, command_tx, gateway_to_transmitter_rx) = create_transmission_handler(&message, 0, NodeType::Server, 1, paths, Duration::from_millis(2000));
 
-        assert_eq!(message.source_id, transmission_handler.source_id);
+        assert_eq!(message.source, transmission_handler.source_id);
+        assert_eq!(message.destination, transmission_handler.destination);
         assert_eq!(message.session_id, transmission_handler.session_id);
         assert_eq!(message.content, transmission_handler.message.content);
     }
@@ -253,7 +254,8 @@ mod tests {
     #[test]
     fn check_create_packets() {
         let message = Message {
-            source_id: 1,
+            source: 1,
+            destination: 2,
             session_id: 51,
             content: MessageType::Response(ResponseType::ChatResponse(ChatResponse::MessageSent)),
         };
@@ -308,7 +310,8 @@ mod tests {
         let session_id = 0;
 
         let message = Message {
-            source_id: 0,
+            source: 0,
+            destination: 1,
             session_id,
             content: MessageType::Response(ResponseType::TextResponse(Text("My super long text response .....................".to_string()))),
         };
@@ -378,7 +381,8 @@ mod tests {
         let session_id = 0;
 
         let message = Message {
-            source_id: 0,
+            source: 0,
+            destination: 1,
             session_id,
             content: MessageType::Response(ResponseType::TextResponse(Text("My super long text response .....................".to_string()))),
         };

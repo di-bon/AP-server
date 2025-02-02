@@ -42,9 +42,9 @@ impl NetworkController {
         }
     }
 
-    fn flood_network(&self) {
+    pub fn flood_network(&self) {
         let mut rng = rand::rng();
-        let session_id: u64 = rng.random();
+        let session_id: u64 = rng.random(); // TODO: decide if this is needed
         let flood_id: u64 = rng.random();
 
         let flood_request = FloodRequest::initialize(flood_id, self.node_id, self.node_type);

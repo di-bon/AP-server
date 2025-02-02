@@ -12,7 +12,7 @@ pub fn create_transmitter(
     node_type: NodeType,
     connected_drones: HashMap<NodeId, Sender<Packet>>,
     simulation_controller_notifier: Arc<SimulationControllerNotifier>,
-) -> (Transmitter, Sender<TransmitterInternalCommand>, Sender<(NodeId, Message)>, Sender<TransmitterUserCommand>) {
+) -> (Transmitter, Sender<TransmitterInternalCommand>, Sender<Message>, Sender<TransmitterUserCommand>) {
 
     let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded::<TransmitterInternalCommand>();
     let (logic_to_transmitter_tx, logic_to_transmitter_rx) = unbounded();

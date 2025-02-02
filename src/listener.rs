@@ -746,7 +746,8 @@ mod tests {
         });
 
         let message = Message {
-            source_id: 10,
+            source: 10,
+            destination: 1,
             session_id: 10,
             content: MessageType::Request(RequestType::TextRequest(TextRequest::TextList)),
         };

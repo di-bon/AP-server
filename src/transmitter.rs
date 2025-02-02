@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use crossbeam_channel::{select, unbounded, Receiver, Sender};
+use crossbeam_channel::{select, select_biased, unbounded, Receiver, Sender};
 use messages::Message;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Nack, NackType, NodeType, Packet, PacketType};
@@ -48,10 +48,10 @@ pub enum TransmitterUserCommand {
 pub struct Transmitter {
     node_id: NodeId,
     // listener -> transmitter
-    listener_rx: Receiver<TransmitterInternalCommand>, // receives ACKs, NACKs, FloodRequest and FloodResponse
+    listener_rx: Receiver<TransmitterInternalCommand>,
     gateway_to_transmitter_rx: Receiver<TransmitterInternalCommand>,
     // server logic -> transmitter
-    server_logic_rx: Receiver<(NodeId, Message)>,
+    server_logic_rx: Receiver<Message>,
     network_controller: Arc<NetworkController>,
     // transmitter -> transmission handlers
     transmission_handlers: HashMap<u64, Sender<TransmissionHandlerCommand>>,
@@ -71,15 +71,13 @@ impl PartialEq for Transmitter {
     }
 }
 
-impl Eq for Transmitter { }
-
 impl Transmitter {
     /// Returns a new instance of `Transmitter`
     pub fn new(
         node_id: NodeId,
         node_type: NodeType,
         listener_rx: Receiver<TransmitterInternalCommand>,
-        server_logic_rx: Receiver<(NodeId, Message)>,
+        server_logic_rx: Receiver<Message>,
         connected_drones: HashMap<NodeId, Sender<Packet>>,
         simulation_controller_notifier: Arc<SimulationControllerNotifier>,
         transmitter_command_rx: Receiver<TransmitterUserCommand>,
@@ -114,21 +112,29 @@ impl Transmitter {
     /// Starts the `Transmitter`, allowing it to process any message sent to it
     pub fn run(&mut self) {
         // when run is called, transmitter should instantaneously flood the network to discover routes
+        self.network_controller.flood_network();
         loop {
-            select! {
-                recv(self.gateway_to_transmitter_rx) -> command => {
+            select_biased! {
+                recv(self.transmitter_command_rx) -> command => {
                     if let Ok(command) = command {
-                        self.process_gateway_command(command);
-                    } else {
-                        panic!("Error while receiving from gateway")
+                        match command {
+                            TransmitterUserCommand::Quit => break,
+                        }
                     }
-                }
+                },
                 recv(self.listener_rx) -> command => {
                     if let Ok(command) = command {
                         self.process_transmitter_internal_command(command);
                         // self.process_listener_packet(packet);
                     } else {
                         panic!("Error while receiving from listener_channel");
+                    }
+                },
+                recv(self.gateway_to_transmitter_rx) -> command => {
+                    if let Ok(command) = command {
+                        self.process_gateway_command(command);
+                    } else {
+                        panic!("Error while receiving from gateway")
                     }
                 },
                 recv(self.server_logic_rx) -> message_data => {
@@ -138,8 +144,8 @@ impl Transmitter {
                     // The transmission handler will handler the fragmentation by using the assembler
                     // The reference to the transmission handler will be removed when the
                     // transmission_handler will have received every ACK message
-                    if let Ok((destination_id, message)) = message_data {
-                        self.process_high_level_message(message, destination_id);
+                    if let Ok(message) = message_data {
+                        self.process_high_level_message(message);
                     } else {
                         panic!("Error while receiving from server_logic")
                     }
@@ -150,19 +156,12 @@ impl Transmitter {
                         self.transmission_handlers.remove(&session_id);
                     }
                 },
-                recv(self.transmitter_command_rx) -> command => {
-                    if let Ok(command) = command {
-                        match command {
-                            TransmitterUserCommand::Quit => break,
-                        }
-                    }
-                },
             }
         }
     }
 
     /// Processes a `Message` received from the logic channel
-    fn process_high_level_message(&mut self, message: Message, destination_id: NodeId) {
+    fn process_high_level_message(&mut self, message: Message) {
         let (command_tx, command_rx) = unbounded::<TransmissionHandlerCommand>();
 
         let session_id = message.session_id; // TODO: or should be a random number?
@@ -170,7 +169,6 @@ impl Transmitter {
             message,
             self.gateway.clone(),
             self.network_controller.clone(),
-            destination_id,
             command_rx,
             self.transmission_handler_event_tx.clone(),
             self.simulation_controller_notifier.clone(),
@@ -349,10 +347,10 @@ mod tests {
     use crate::transmitter::{TransmissionHandlerEvent, Transmitter, TransmitterUserCommand};
 
     fn create_transmitter(node_id: NodeId, node_type: NodeType, connected_drones: HashMap<NodeId, Sender<Packet>>)
-        -> (Transmitter, Sender<TransmitterInternalCommand>, Sender<(NodeId, Message)>, Receiver<NodeEvent>, Sender<TransmitterUserCommand>)
+        -> (Transmitter, Sender<TransmitterInternalCommand>, Sender<Message>, Receiver<NodeEvent>, Sender<TransmitterUserCommand>)
     {
         let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded::<TransmitterInternalCommand>();
-        let (server_logic_to_transmitter_tx, server_logic_to_transmitter_rx) = unbounded::<(NodeId, Message)>();
+        let (server_logic_to_transmitter_tx, server_logic_to_transmitter_rx) = unbounded::<Message>();
 
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
@@ -404,7 +402,7 @@ mod tests {
         let gateway = Arc::new(gateway);
 
         let (listener_tx, listener_rx) = unbounded::<TransmitterInternalCommand>();
-        let (server_logic_tx, server_logic_rx) = unbounded::<(NodeId, Message)>();
+        let (server_logic_tx, server_logic_rx) = unbounded::<Message>();
         let (transmitter_to_transmission_handler_event_tx, transmitter_to_transmission_handler_event_rx) = unbounded::<TransmissionHandlerEvent>();
         let (transmission_handler_to_transmitter_event_tx, transmission_handler_to_transmitter_event_rx) = unbounded::<TransmissionHandlerEvent>();
 
@@ -448,7 +446,8 @@ mod tests {
         ) = create_transmitter(node_id, node_type, connected_drones);
 
         let message = Message {
-            source_id: 0,
+            source: 0,
+            destination: 1,
             session_id: 0,
             content: MessageType::Response(
                 ResponseType::TextResponse(
@@ -459,7 +458,7 @@ mod tests {
             ),
         };
 
-        transmitter.process_high_level_message(message.clone(), 1);
+        transmitter.process_high_level_message(message.clone());
 
         // let received = simulation_controller_rx.recv().unwrap();
         //
@@ -525,7 +524,7 @@ mod tests {
 
         let (internal_transmitter_to_listener_tx, internal_transmitter_to_listener_rx) = unbounded::<Packet>();
         let (internal_listener_to_transmitter_tx, internal_listener_to_transmitter_rx) = unbounded::<TransmitterInternalCommand>();
-        let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded::<(NodeId, Message)>();
+        let (internal_server_logic_to_transmitter_tx, internal_server_logic_to_transmitter_rx) = unbounded();
 
         let (simulation_controller_tx, simulation_controller_rx) = unbounded::<NodeEvent>();
         let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);

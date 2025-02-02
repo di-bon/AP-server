@@ -47,8 +47,10 @@ fn check_message_handling_and_forwarding() {
     let node_type = NodeType::Server;
 
     let mut connected_drones = HashMap::new();
+    let mut drones_rx = HashMap::new();
     let (drone_1_tx, drone_1_rx) = unbounded();
     connected_drones.insert(1, drone_1_tx);
+    drones_rx.insert(1, drone_1_rx);
 
     let (simulation_controller_notifier, simulation_controller_rx) = create_simulation_controller_notifier();
 
@@ -61,10 +63,23 @@ fn check_message_handling_and_forwarding() {
         transmitter.run();
     });
 
+    thread::sleep(Duration::from_millis(20));
+
+    let mut flood_id = 0;
+    for (id, rx) in &drones_rx {
+        let received = rx.recv().expect(&format!("Error while receiving a message in drone {id}"));
+        assert!(matches!(received.pack_type, PacketType::FloodRequest(_)));
+        if let PacketType::FloodRequest(flood_request) = received.pack_type {
+            flood_id = flood_request.flood_id;
+        }
+        let event = simulation_controller_rx.recv().unwrap();
+        assert!(matches!(event, NodeEvent::PacketSent(_)));
+    }
+
     // send FloodResponse to update the network graph
 
     let flood_response = FloodResponse {
-        flood_id: 0,
+        flood_id,
         path_trace: vec![
             (node_id, node_type),
             (1, NodeType::Drone),
@@ -84,8 +99,10 @@ fn check_message_handling_and_forwarding() {
     // send Message
 
     let session_id = 10;
+    let destination_node_id = 2;
     let message = Message {
-        source_id: node_id,
+        source: node_id,
+        destination: destination_node_id,
         session_id,
         content: MessageType::Response(
             ResponseType::TextResponse(
@@ -95,9 +112,8 @@ fn check_message_handling_and_forwarding() {
             )
         ),
     };
-    let destination_node_id = 2;
 
-    logic_to_transmitter_tx.send((destination_node_id, message.clone())).expect("Logic cannot communicate with transmitter");
+    logic_to_transmitter_tx.send(message.clone()).expect("Logic cannot communicate with transmitter");
 
     // check forwarded Packets
 
@@ -111,7 +127,7 @@ fn check_message_handling_and_forwarding() {
     ).collect();
 
     for expected_packet in &expected_packets {
-        let received = drone_1_rx.recv().unwrap();
+        let received = drones_rx.get(&1).unwrap().recv().unwrap();
         assert_eq!(received, *expected_packet);
     }
 
@@ -166,8 +182,10 @@ fn check_unexpected_ack() {
     let node_type = NodeType::Server;
 
     let mut connected_drones = HashMap::new();
+    let mut drones_rx = HashMap::new();
     let (drone_1_tx, drone_1_rx) = unbounded();
     connected_drones.insert(1, drone_1_tx);
+    drones_rx.insert(1, drone_1_rx);
 
     let (simulation_controller_notifier, simulation_controller_rx) = create_simulation_controller_notifier();
 
@@ -179,6 +197,19 @@ fn check_unexpected_ack() {
     let handle = thread::spawn(move || {
         transmitter.run();
     });
+
+    thread::sleep(Duration::from_millis(20));
+
+    let mut flood_id = 0;
+    for (id, rx) in &drones_rx {
+        let received = rx.recv().expect(&format!("Error while receiving a message in drone {id}"));
+        assert!(matches!(received.pack_type, PacketType::FloodRequest(_)));
+        if let PacketType::FloodRequest(flood_request) = received.pack_type {
+            flood_id = flood_request.flood_id;
+        }
+        let event = simulation_controller_rx.recv().unwrap();
+        assert!(matches!(event, NodeEvent::PacketSent(_)));
+    }
 
     // send FloodResponse to update the network graph
 
@@ -224,7 +255,7 @@ fn check_unexpected_ack() {
         pack_type: PacketType::Nack(expected),
     };
 
-    let received = drone_1_rx.recv().unwrap();
+    let received = drones_rx.get(&1).unwrap().recv().unwrap();
     assert_eq!(received, expected);
 }
 
@@ -235,8 +266,10 @@ fn check_flood_request_processing() {
     let node_type = NodeType::Server;
 
     let mut connected_drones = HashMap::new();
+    let mut drones_rx = HashMap::new();
     let (drone_1_tx, drone_1_rx) = unbounded();
     connected_drones.insert(1, drone_1_tx);
+    drones_rx.insert(1, drone_1_rx);
 
     let (simulation_controller_notifier, simulation_controller_rx) = create_simulation_controller_notifier();
 
@@ -249,16 +282,30 @@ fn check_flood_request_processing() {
         transmitter.run();
     });
 
+    thread::sleep(Duration::from_millis(20));
+
+    let mut flood_id = 0;
+    for (id, rx) in &drones_rx {
+        let received = rx.recv().expect(&format!("Error while receiving a message in drone {id}"));
+        assert!(matches!(received.pack_type, PacketType::FloodRequest(_)));
+        if let PacketType::FloodRequest(flood_request) = received.pack_type {
+            flood_id = flood_request.flood_id;
+        }
+        let event = simulation_controller_rx.recv().unwrap();
+        assert!(matches!(event, NodeEvent::PacketSent(_)));
+    }
+
     // send FloodResponse to update the network graph
 
     let flood_response = FloodResponse {
-        flood_id: 0,
+        flood_id,
         path_trace: vec![
             (node_id, node_type),
             (1, NodeType::Drone),
             (2, NodeType::Client),
         ],
     };
+
     // let flood_response = Packet {
     //     routing_header: SourceRoutingHeader { hop_index: 0, hops: vec![] },
     //     session_id: 0,
@@ -309,7 +356,7 @@ fn check_flood_request_processing() {
         pack_type: PacketType::FloodResponse(expected_flood_response),
     };
 
-    let received = drone_1_rx.recv().unwrap();
+    let received = drones_rx.get(&1).unwrap().recv().unwrap();
     assert_eq!(received, expected_flood_response);
 }
 
@@ -320,8 +367,10 @@ fn check_nack_processing() {
     let node_type = NodeType::Server;
 
     let mut connected_drones = HashMap::new();
+    let mut drones_rx = HashMap::new();
     let (drone_1_tx, drone_1_rx) = unbounded();
     connected_drones.insert(1, drone_1_tx);
+    drones_rx.insert(1, drone_1_rx);
 
     let (simulation_controller_notifier, simulation_controller_rx) = create_simulation_controller_notifier();
 
@@ -334,10 +383,23 @@ fn check_nack_processing() {
         transmitter.run();
     });
 
+    thread::sleep(Duration::from_millis(20));
+
+    let mut flood_id = 0;
+    for (id, rx) in &drones_rx {
+        let received = rx.recv().expect(&format!("Error while receiving a message in drone {id}"));
+        assert!(matches!(received.pack_type, PacketType::FloodRequest(_)));
+        if let PacketType::FloodRequest(flood_request) = received.pack_type {
+            flood_id = flood_request.flood_id;
+        }
+        let event = simulation_controller_rx.recv().unwrap();
+        assert!(matches!(event, NodeEvent::PacketSent(_)));
+    }
+
     // send FloodResponses to update the network graph
 
     let flood_response = FloodResponse {
-        flood_id: 0,
+        flood_id,
         path_trace: vec![
             (node_id, node_type),
             (1, NodeType::Drone),
@@ -375,8 +437,10 @@ fn check_nack_processing() {
     // send fragments
 
     let session_id = 10;
+    let destination_node_id = 4;
     let message = Message {
-        source_id: node_id,
+        source: node_id,
+        destination: destination_node_id,
         session_id,
         content: MessageType::Response(
             ResponseType::TextResponse(
@@ -386,9 +450,8 @@ fn check_nack_processing() {
             )
         ),
     };
-    let destination_node_id = 4;
 
-    logic_to_transmitter_tx.send((destination_node_id, message.clone())).expect("Logic cannot communicate with transmitter");
+    logic_to_transmitter_tx.send(message.clone()).expect("Logic cannot communicate with transmitter");
 
     let event = simulation_controller_rx.recv().unwrap();
     assert!(matches!(event, NodeEvent::StartingMessageTransmission(_)));
@@ -418,11 +481,11 @@ fn check_nack_processing() {
     // check forwarded Packets
 
     for i in 0..fragments.len() {
-        let received = drone_1_rx.recv().unwrap();
+        let received = drones_rx.get(&1).unwrap().recv().unwrap();
         assert!(matches!(received.pack_type, PacketType::MsgFragment(_)));
     }
 
-    let received = drone_1_rx.recv().unwrap();
+    let received =  drones_rx.get(&1).unwrap().recv().unwrap();
     let expected_routing_header = SourceRoutingHeader {
         hop_index: 1,
         hops: vec![node_id, 1, 2, 5, 6, 7, 4],
@@ -452,7 +515,7 @@ fn check_nack_processing() {
     listener_to_transmitter_tx.send(command).expect("Listener cannot communicate with transmitter");
 
     let expected = received.clone();
-    let received = drone_1_rx.recv().unwrap();
+    let received =  drones_rx.get(&1).unwrap().recv().unwrap();
 
     assert_eq!(received, expected);
 }
