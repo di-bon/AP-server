@@ -300,3 +300,5 @@ pub trait DibServerTrait: DibGetter {
         let _ = transmitter_handle.join();
     }
 }
+
+impl DibServerTrait for DibServer {}
