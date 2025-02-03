@@ -87,8 +87,8 @@ trait Server: Getter {
             Ok(()) => { }
             Err(error) => {
                 let error = format!("Logic cannot communicate with transmitter. Error: {error:?}");
-                log::error!(error);
-                panic!(error);
+                log::error!("{}", error);
+                panic!("{}", error);
             }
         }
     }

@@ -71,8 +71,8 @@ impl ContentServer {
             server_logic_to_transmitter_tx,
             listener_to_server_logic_rx,
             command_rx,
-            text_resources,
-            media_resources,
+            text_resources: vec![],
+            media_resources: vec![],
             resources_path,
         };
         result.update_resources();
@@ -81,11 +81,11 @@ impl ContentServer {
 
     fn update_resources(&mut self) {
         let text_resources = Self::get_available_files(&self.resources_path, "txt").unwrap_or_else(|err| {
-            log::warn!("No text resources available at {resources_path}");
+            log::warn!("No text resources available at {}", self.resources_path);
             vec![]
         });
         let media_resources = Self::get_available_files(&self.resources_path, "png").unwrap_or_else(|err| {
-            log::warn!("No media resources available at {resources_path}");
+            log::warn!("No media resources available at {}", self.resources_path);
             vec![]
         });
         self.text_resources = text_resources;
