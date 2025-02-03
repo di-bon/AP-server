@@ -24,6 +24,5 @@ Cargo.lock
 
 /target
 
-# res folder to store text files and images for content server to use
-
-res/
+# Uncomment the following line to avoid tracking the res folder used by the content server
+# res/
