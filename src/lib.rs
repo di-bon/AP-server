@@ -12,22 +12,16 @@ use messages::Message;
 use messages::node_event::NodeEvent;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
-// use crate::listener::{Listener, ListenerCommand};
-// use crate::simulation_controller_notifier::SimulationControllerNotifier;
-// use crate::transmitter::{Transmitter, TransmitterInternalCommand, TransmitterUserCommand};
 use ap_transmitter::{Transmitter, Command, LogicCommand};
 use ap_sc_notifier::SimulationControllerNotifier;
 use ap_listener::{Listener, ListenerCommand};
 
-// mod transmitter;
-// mod listener;
-mod server_logic;
-// mod simulation_controller_notifier;
+mod logic;
 
 pub struct NullPointerDibServer {
     transmitter: Arc<Mutex<Transmitter>>,
     listener: Arc<Mutex<Listener>>,
-    // server_logic: Arc<Mutex<TextServer>>
+    // logic: Arc<Mutex<TextServer>>
 }
 
 impl NullPointerDibServer {
@@ -77,20 +71,20 @@ impl NullPointerDibServer {
         /*
         let (server_logic_tx, server_logic_rx) = unbounded();
 
-        let server_logic = TextServer::new(node_id, internal_server_logic_to_transmitter_tx, internal_listener_to_server_logic_rx, server_logic_rx);
+        let logic = TextServer::new(node_id, internal_server_logic_to_transmitter_tx, internal_listener_to_server_logic_rx, server_logic_rx);
 
         assert_eq!(transmitter.get_node_id(), listener.get_node_id());
-        assert_eq!(transmitter.get_node_id(), server_logic.get_node_id());
+        assert_eq!(transmitter.get_node_id(), logic.get_node_id());
 
          */
         let transmitter = Arc::new(Mutex::new(transmitter));
         let listener = Arc::new(Mutex::new(listener));
-        // let server_logic = Arc::new(Mutex::new(server_logic));
+        // let logic = Arc::new(Mutex::new(logic));
 
         Self {
             transmitter,
             listener,
-            // server_logic,
+            // logic,
         }
     }
 
@@ -125,16 +119,16 @@ impl NullPointerDibServer {
         });
 
         /*
-        let server_logic = self.server_logic.clone();
+        let logic = self.logic.clone();
         let server_logic_handle = thread::spawn(move || {
-            let mut server_logic = match server_logic.lock() {
-                Ok(server_logic) => server_logic,
+            let mut logic = match logic.lock() {
+                Ok(logic) => logic,
                 Err(err) => {
-                    log::error!("Error while starting server_logic: {err:?}");
-                    panic!("Error while starting server_logic: {err:?}");
+                    log::error!("Error while starting logic: {err:?}");
+                    panic!("Error while starting logic: {err:?}");
                 }
             };
-            server_logic.run();
+            logic.run();
         });
          */
 
