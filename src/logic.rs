@@ -1,9 +1,8 @@
 mod communication_server;
 mod content_server;
 
-use crossbeam_channel::{select, Receiver, SendError, Sender};
+use crossbeam_channel::{select, Receiver, Sender};
 use messages::{ErrorType, Message, MessageType, RequestType, ResponseType};
-use messages::node::Node;
 use wg_2024::network::NodeId;
 pub use crate::logic::communication_server::CommunicationServer;
 pub use crate::logic::content_server::ContentServer;
@@ -31,9 +30,8 @@ pub trait Server: Getter + Send {
                                 break;
                             }
                         }
-                    } else {
-                        panic!("Error while receiving ServerLogicCommand");
                     }
+                    panic!("Error while receiving ServerLogicCommand");
                 },
                 recv(self.get_listener_to_server_logic_rx()) -> message => {
                     if let Ok(message) = message {

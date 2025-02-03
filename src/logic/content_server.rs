@@ -1,9 +1,7 @@
-use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
-use crossbeam_channel::{select, Receiver, SendError, Sender};
-use messages::{ChatRequest, ChatResponse, ErrorType, MediaRequest, MediaResponse, Message, MessageType, RequestType, ResponseType, ServerType, TextRequest, TextResponse};
-use rand::{random, Rng};
+use crossbeam_channel::{Receiver, Sender};
+use messages::{ErrorType, MediaRequest, MediaResponse, Message, MessageType, RequestType, ResponseType, ServerType, TextRequest, TextResponse};
 use wg_2024::network::NodeId;
 use crate::logic::{Command, Getter, Server};
 
@@ -81,11 +79,11 @@ impl ContentServer {
 
     fn update_resources(&mut self) {
         let text_resources = Self::get_available_files(&self.resources_path, "txt").unwrap_or_else(|err| {
-            log::warn!("No text resources available at {}", self.resources_path);
+            log::warn!("No text resources available at {}. Reason: {err:?}", self.resources_path);
             vec![]
         });
         let media_resources = Self::get_available_files(&self.resources_path, "png").unwrap_or_else(|err| {
-            log::warn!("No media resources available at {}", self.resources_path);
+            log::warn!("No media resources available at {}. Reason: {err:?}", self.resources_path);
             vec![]
         });
         self.text_resources = text_resources;
@@ -104,6 +102,7 @@ impl ContentServer {
                 )
             }
             TextRequest::Text(index) => {
+                #[allow(clippy::cast_possible_truncation)]
                 let filename = self.text_resources.get(*index as usize);
                 match filename {
                     Some(filename) => {
@@ -155,6 +154,7 @@ impl ContentServer {
                 )
             }
             MediaRequest::Media(index) => {
+                #[allow(clippy::cast_possible_truncation)]
                 let filename = self.media_resources.get(*index as usize);
                 match filename {
                     Some(filename) => {

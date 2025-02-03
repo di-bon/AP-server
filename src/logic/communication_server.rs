@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use crossbeam_channel::{select, Receiver, SendError, Sender};
-use messages::{ChatRequest, ChatResponse, ErrorType, Message, MessageType, RequestType, ResponseType, ServerType, TextResponse};
-use rand::{random, Rng};
+use std::collections::HashSet;
+use crossbeam_channel::{Receiver, Sender};
+use messages::{ChatRequest, ChatResponse, ErrorType, Message, MessageType, RequestType, ResponseType, ServerType};
+use rand::Rng;
 use wg_2024::network::NodeId;
 use crate::logic::{Command, Getter, Server};
 

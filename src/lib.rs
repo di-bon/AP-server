@@ -1,18 +1,11 @@
-// TODO: remove this when project is finished
-// #![allow(dead_code)]
-// #![allow(unused_variables)]
-// #![allow(unused_must_use)]
-// #![allow(clippy::missing_panics_doc)]
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
-use messages::Message;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use messages::node_event::NodeEvent;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
-use ap_transmitter::{Transmitter, Command as TransmitterCommand, LogicCommand};
+use ap_transmitter::{Transmitter, Command as TransmitterCommand};
 use ap_sc_notifier::SimulationControllerNotifier;
 use ap_listener::{Listener, ListenerCommand};
 use crate::logic::{Command as ServerCommand, CommunicationServer, ContentServer, Getter, Server};
@@ -35,16 +28,13 @@ pub struct DibServer {
 }
 
 impl DibServer {
-    /// Return a new instance of `NullPointerDibServer`
+    /// Return a new instance of `DibServer` implementing a `ContentServer`
     /// # Panics
     /// Panics if `Transmitter`, `Listener` and `ServerLogic` do not share the same `node_id`
     #[must_use]
     pub fn new_content_server(
-        // the server's NodeId
         node_id: NodeId,
-        // the channel the server listens on to receive packets from connected drones
         listener_rx: Receiver<Packet>,
-        // the HashMap containing every connected drone
         drones_tx: HashMap<NodeId, Sender<Packet>>,
         simulation_controller_tx: Sender<NodeEvent>,
         resource_path: String,
@@ -105,19 +95,19 @@ impl DibServer {
             logic_command_tx,
             transmitter,
             transmitter_command_tx,
-            command_rx: command_rx,
+            command_rx,
         };
 
         (result, command_tx)
     }
 
+    /// Return a new instance of `DibServer` implementing a `CommunicationServer`
+    /// # Panics
+    /// Panics if `Transmitter`, `Listener` and `ServerLogic` do not share the same `node_id`
     #[must_use]
     pub fn new_communication_server(
-        // the server's NodeId
         node_id: NodeId,
-        // the channel the server listens on to receive packets from connected drones
         listener_rx: Receiver<Packet>,
-        // the HashMap containing every connected drone
         drones_tx: HashMap<NodeId, Sender<Packet>>,
         simulation_controller_tx: Sender<NodeEvent>,
     ) -> (Self, Sender<Command>) {
@@ -176,88 +166,14 @@ impl DibServer {
             logic_command_tx,
             transmitter,
             transmitter_command_tx,
-            command_rx: command_rx,
+            command_rx,
         };
 
         (result, command_tx)
     }
-
-    // /// Starts the server
-    // /// # Panics
-    // /// - Panics if the transmitter thread cannot acquire the lock on the transmitter
-    // /// - Panics if the listener thread cannot acquire the lock on the listener
-    // /// - Panics if the server logic thread cannot acquire the lock on the server logic
-    // pub fn run(&mut self) {
-    //     let listener = self.listener.clone();
-    //     let listener_handle = thread::spawn(move || {
-    //         let mut listener = match listener.lock() {
-    //             Ok(listener) => listener,
-    //             Err(err) => {
-    //                 log::error!("Error while starting listener: {err:?}");
-    //                 panic!("Error while starting listener: {err:?}");
-    //             }
-    //         };
-    //         listener.run();
-    //     });
-    //
-    //     let transmitter = self.transmitter.clone();
-    //     let transmitter_handle = thread::spawn(move || {
-    //         let mut transmitter = match transmitter.lock() {
-    //             Ok(transmitter) => transmitter,
-    //             Err(err) => {
-    //                 log::error!("Error while starting transmitter: {err:?}");
-    //                 panic!("Error while starting transmitter: {err:?}");
-    //             }
-    //         };
-    //         transmitter.run();
-    //     });
-    //
-    //     let logic = self.logic.clone();
-    //     let server_logic_handle = thread::spawn(move || {
-    //         let mut logic = match logic.lock() {
-    //             Ok(logic) => logic,
-    //             Err(err) => {
-    //                 log::error!("Error while starting logic: {err:?}");
-    //                 panic!("Error while starting logic: {err:?}");
-    //             }
-    //         };
-    //         logic.run();
-    //     });
-    //
-    //     'command_loop: loop {
-    //         let command = self.command_rx.recv();
-    //         match command {
-    //             Ok(command) => {
-    //                 match command {
-    //                     Command::Quit => {
-    //                         let command = ListenerCommand::Quit;
-    //                         let _ = self.listener_command_tx.send(command);
-    //
-    //                         let command = ServerCommand::Quit;
-    //                         let _ = self.logic_command_tx.send(command);
-    //
-    //                         let command = TransmitterCommand::Quit;
-    //                         let _ = self.transmitter_command_tx.send(command);
-    //
-    //                         break 'command_loop
-    //                     }
-    //                 }
-    //             }
-    //             Err(error) => {
-    //                 let error = format!("Error while receiving DibContentCommand. Error: {error:?}");
-    //                 log::error!("{error}");
-    //                 panic!("{error}");
-    //             }
-    //         }
-    //     }
-    //
-    //     let _ = listener_handle.join();
-    //     let _ = server_logic_handle.join();
-    //     let _ = transmitter_handle.join();
-    // }
 }
 
-trait DibGetter {
+pub trait DibGetter {
     fn get_node_id(&self) -> NodeId;
     fn get_listener(&self) -> Arc<Mutex<Listener>>;
     fn get_listener_tx(&self) -> &Sender<ListenerCommand>;
