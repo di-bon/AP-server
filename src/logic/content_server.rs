@@ -101,9 +101,8 @@ impl ContentServer {
                     )
                 )
             }
-            TextRequest::Text(index) => {
-                #[allow(clippy::cast_possible_truncation)]
-                let filename = self.text_resources.get(*index as usize);
+            TextRequest::Text(requested_file) => {
+                let filename = self.text_resources.iter().find(|res| *res == requested_file);
                 match filename {
                     Some(filename) => {
                         match self.read_file(filename) {
@@ -118,12 +117,12 @@ impl ContentServer {
                             }
                             Err(error) => {
                                 log::warn!("Error while reading file {filename}. Error: {error:?}");
-                                MessageType::Response(ResponseType::TextResponse(TextResponse::NotFound))
+                                MessageType::Response(ResponseType::TextResponse(TextResponse::NotFound(requested_file.clone())))
                             }
                         }
                     },
                     None => {
-                        MessageType::Response(ResponseType::TextResponse(TextResponse::NotFound))
+                        MessageType::Response(ResponseType::TextResponse(TextResponse::NotFound(requested_file.clone())))
                     },
                 }
             }
@@ -153,9 +152,8 @@ impl ContentServer {
                     )
                 )
             }
-            MediaRequest::Media(index) => {
-                #[allow(clippy::cast_possible_truncation)]
-                let filename = self.media_resources.get(*index as usize);
+            MediaRequest::Media(requested_media) => {
+                let filename = self.text_resources.iter().find(|res| *res == requested_media);
                 match filename {
                     Some(filename) => {
                         match self.read_file_as_bytes(filename) {
@@ -170,12 +168,12 @@ impl ContentServer {
                             }
                             Err(error) => {
                                 log::warn!("Error while reading file {filename}. Error: {error:?}");
-                                MessageType::Response(ResponseType::MediaResponse(MediaResponse::NotFound))
+                                MessageType::Response(ResponseType::MediaResponse(MediaResponse::NotFound(requested_media.clone())))
                             }
                         }
                     },
                     None => {
-                        MessageType::Response(ResponseType::MediaResponse(MediaResponse::NotFound))
+                        MessageType::Response(ResponseType::MediaResponse(MediaResponse::NotFound(requested_media.clone())))
                     },
                 }
             }

@@ -7,7 +7,7 @@ use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
 use ap_transmitter::{Transmitter, Command as TransmitterCommand};
 use ap_sc_notifier::SimulationControllerNotifier;
-use ap_listener::{Listener, ListenerCommand};
+use ap_listener::{Listener, Command as ListenerCommand};
 use crate::logic::{Command as ServerCommand, CommunicationServer, ContentServer, Getter, Server};
 
 mod logic;
