@@ -15,3 +15,4 @@ ap_sc_notifier = { git = "https://github.com/di-bon/ap_sc_notifier.git" }
 
 [dev-dependencies]
 ntest = "0.7.2"
+assembler = { git = "https://github.com/The-Null-Pointer-Patrol/assembler.git" }
