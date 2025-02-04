@@ -3,7 +3,7 @@ use std::thread;
 use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use messages::{ChatRequest, ChatResponse, Message, MessageType, MessageUtilities, RequestType, ResponseType};
+use messages::{ChatRequest, ChatResponse, ErrorType, MediaRequest, Message, MessageType, MessageUtilities, RequestType, ResponseType, TextResponse};
 use messages::node_event::NodeEvent;
 use ntest::timeout;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
@@ -235,5 +235,244 @@ fn register_node_id(source: NodeId, destination: NodeId, session_id: u64, drones
         content,
     };
     send_message_and_receive_acks(server_to_source_rx, drones_to_server_tx, source, destination, session_id, request);
+}
 
+#[test]
+#[timeout(2000)]
+fn check_unsupported_request() -> std::thread::Result<()> {
+    let server_node_id = 0;
+
+    let mut connected_drones = HashMap::new();
+    let mut drones = HashMap::new();
+    let (tx, rx) = unbounded();
+
+    connected_drones.insert(1, tx);
+    drones.insert(1, rx);
+
+    let (tx, rx) = unbounded();
+    connected_drones.insert(9, tx);
+    drones.insert(9, rx);
+
+    let (server_public_tx, server_public_rx) = unbounded();
+    let (server_to_sc_tx, server_to_sc_rx) = unbounded();
+
+    let (mut server, command_tx) = DibServer::new_communication_server(
+        server_node_id,
+        server_public_rx,
+        connected_drones,
+        server_to_sc_tx,
+    );
+
+    let server_handler = thread::Builder::new()
+        .name(format!("content_server_{}", server.get_node_id()))
+        .spawn(move || {
+            server.run()
+        })
+        .unwrap();
+
+    process_initial_flood_requests(&mut drones, &server_public_tx);
+
+    let source = 9;
+    let destination = server_node_id;
+    let session_id = 4;
+
+    let server_to_drone_source_rx = drones.get(&source).unwrap();
+
+    let unsupported_message = Message {
+        source,
+        destination,
+        session_id,
+        content: MessageType::Request(RequestType::MediaRequest(MediaRequest::MediaList)),
+    };
+
+    send_message_and_receive_acks(server_to_drone_source_rx, &server_public_tx, source, destination, session_id, unsupported_message);
+
+    let expected_response = Message {
+        source: destination,
+        destination: source,
+        session_id,
+        content: MessageType::Error(ErrorType::Unsupported(RequestType::MediaRequest(MediaRequest::MediaList))),
+    };
+
+    let expected_fragments = NaiveAssembler::disassemble(&expected_response.stringify().into_bytes());
+    let mut received_fragments = Vec::new();
+    for _ in 0..expected_fragments.len() {
+        let received = server_to_drone_source_rx.recv().unwrap();
+        match received.pack_type {
+            PacketType::MsgFragment(fragment) => received_fragments.push(fragment),
+            _ => panic!("Received unexpected packet {received:?}"),
+        }
+    }
+
+    received_fragments.sort_by_key(|fragment| fragment.fragment_index);
+    let received_message = NaiveAssembler::reassemble(&received_fragments);
+    let received_message = String::from_utf8(received_message).unwrap();
+    let received_message: Message = MessageUtilities::from_string(received_message).unwrap();
+
+    assert_eq!(received_message, expected_response);
+
+    let shutdown = Command::Quit;
+    let _ = command_tx.send(shutdown);
+
+    server_handler.join()
+}
+
+#[test]
+#[timeout(2000)]
+fn check_unexpected_message() -> std::thread::Result<()> {
+    let server_node_id = 0;
+
+    let mut connected_drones = HashMap::new();
+    let mut drones = HashMap::new();
+    let (tx, rx) = unbounded();
+
+    connected_drones.insert(1, tx);
+    drones.insert(1, rx);
+
+    let (tx, rx) = unbounded();
+    connected_drones.insert(9, tx);
+    drones.insert(9, rx);
+
+    let (server_public_tx, server_public_rx) = unbounded();
+    let (server_to_sc_tx, server_to_sc_rx) = unbounded();
+
+    let (mut server, command_tx) = DibServer::new_communication_server(
+        server_node_id,
+        server_public_rx,
+        connected_drones,
+        server_to_sc_tx,
+    );
+
+    let server_handler = thread::Builder::new()
+        .name(format!("content_server_{}", server.get_node_id()))
+        .spawn(move || {
+            server.run()
+        })
+        .unwrap();
+
+    process_initial_flood_requests(&mut drones, &server_public_tx);
+
+    let source = 9;
+    let destination = server_node_id;
+    let session_id = 4;
+
+    let server_to_drone_source_rx = drones.get(&source).unwrap();
+
+    let unexpected_message = Message {
+        source,
+        destination,
+        session_id,
+        content: MessageType::Response(ResponseType::TextResponse(TextResponse::TextList(vec![]))),
+    };
+
+    send_message_and_receive_acks(server_to_drone_source_rx, &server_public_tx, source, destination, session_id, unexpected_message);
+
+    let expected_response = Message {
+        source: destination,
+        destination: source,
+        session_id,
+        content: MessageType::Error(ErrorType::Unexpected(ResponseType::TextResponse(TextResponse::TextList(vec![])))),
+    };
+
+    let expected_fragments = NaiveAssembler::disassemble(&expected_response.stringify().into_bytes());
+    let mut received_fragments = Vec::new();
+    for _ in 0..expected_fragments.len() {
+        let received = server_to_drone_source_rx.recv().unwrap();
+        match received.pack_type {
+            PacketType::MsgFragment(fragment) => received_fragments.push(fragment),
+            _ => panic!("Received unexpected packet {received:?}"),
+        }
+    }
+
+    received_fragments.sort_by_key(|fragment| fragment.fragment_index);
+    let received_message = NaiveAssembler::reassemble(&received_fragments);
+    let received_message = String::from_utf8(received_message).unwrap();
+    let received_message: Message = MessageUtilities::from_string(received_message).unwrap();
+
+    assert_eq!(received_message, expected_response);
+
+    let shutdown = Command::Quit;
+    let _ = command_tx.send(shutdown);
+
+    server_handler.join()
+}
+
+#[test]
+#[timeout(2000)]
+fn check_error_processing() -> std::thread::Result<()> {
+    let server_node_id = 0;
+
+    let mut connected_drones = HashMap::new();
+    let mut drones = HashMap::new();
+    let (tx, rx) = unbounded();
+
+    connected_drones.insert(1, tx);
+    drones.insert(1, rx);
+
+    let (tx, rx) = unbounded();
+    connected_drones.insert(9, tx);
+    drones.insert(9, rx);
+
+    let (server_public_tx, server_public_rx) = unbounded();
+    let (server_to_sc_tx, server_to_sc_rx) = unbounded();
+
+    let (mut server, command_tx) = DibServer::new_communication_server(
+        server_node_id,
+        server_public_rx,
+        connected_drones,
+        server_to_sc_tx,
+    );
+
+    let server_handler = thread::Builder::new()
+        .name(format!("content_server_{}", server.get_node_id()))
+        .spawn(move || {
+            server.run()
+        })
+        .unwrap();
+
+    process_initial_flood_requests(&mut drones, &server_public_tx);
+
+    let source = 9;
+    let destination = server_node_id;
+    let session_id = 4;
+
+    let server_to_drone_source_rx = drones.get(&source).unwrap();
+
+    let error_message = Message {
+        source,
+        destination,
+        session_id,
+        content: MessageType::Response(ResponseType::TextResponse(TextResponse::TextList(vec![]))),
+    };
+
+    send_message_and_receive_acks(server_to_drone_source_rx, &server_public_tx, source, destination, session_id, error_message);
+
+    let expected_response = Message {
+        source: destination,
+        destination: source,
+        session_id,
+        content: MessageType::Error(ErrorType::Unexpected(ResponseType::TextResponse(TextResponse::TextList(vec![])))),
+    };
+
+    let expected_fragments = NaiveAssembler::disassemble(&expected_response.stringify().into_bytes());
+    let mut received_fragments = Vec::new();
+    for _ in 0..expected_fragments.len() {
+        let received = server_to_drone_source_rx.recv().unwrap();
+        match received.pack_type {
+            PacketType::MsgFragment(fragment) => received_fragments.push(fragment),
+            _ => panic!("Received unexpected packet {received:?}"),
+        }
+    }
+
+    received_fragments.sort_by_key(|fragment| fragment.fragment_index);
+    let received_message = NaiveAssembler::reassemble(&received_fragments);
+    let received_message = String::from_utf8(received_message).unwrap();
+    let received_message: Message = MessageUtilities::from_string(received_message).unwrap();
+
+    assert_eq!(received_message, expected_response);
+
+    let shutdown = Command::Quit;
+    let _ = command_tx.send(shutdown);
+
+    server_handler.join()
 }
