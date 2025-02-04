@@ -11,7 +11,6 @@ pub enum Command {
     Quit,
 }
 
-// TODO: change visibility of traits
 pub trait Getter {
     fn get_node_id(&self) -> NodeId;
     fn get_command_rx(&self) -> &Receiver<Command>;
