@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use messages::node_event::NodeEvent;
 use wg_2024::network::NodeId;
@@ -58,7 +59,8 @@ impl DibServer {
             logic_to_transmitter_rx,
             drones_tx,
             simulation_controller_notifier.clone(),
-            transmitter_command_rx
+            transmitter_command_rx,
+            Duration::from_secs(60),
         );
 
         let listener = Listener::new(
@@ -130,7 +132,8 @@ impl DibServer {
             logic_to_transmitter_rx,
             drones_tx,
             simulation_controller_notifier.clone(),
-            transmitter_command_rx
+            transmitter_command_rx,
+            Duration::from_secs(60),
         );
 
         let listener = Listener::new(
