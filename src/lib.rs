@@ -14,6 +14,8 @@ mod logic;
 
 pub enum Command {
     Quit,
+    AddNeighbor(NodeId, Sender<Packet>),
+    RemoveNeighbor(NodeId),
 }
 
 pub struct DibServer {
@@ -268,22 +270,30 @@ pub trait DibServerTrait: DibGetter {
                 logic.run();
             }).unwrap();
 
-        // 'command_loop: loop {
+        'command_loop: loop {
             let command = self.get_command_rx().recv();
             match command {
                 Ok(command) => {
                     match command {
                         Command::Quit => {
                             let command = ListenerCommand::Quit;
-                            let _ = self.get_listener_tx().send(command);
+                            self.get_listener_tx().send(command).expect("Cannot communicate with listener thread");
 
                             let command = ServerCommand::Quit;
-                            let _ = self.get_logic_tx().send(command);
+                            self.get_logic_tx().send(command).expect("Cannot communicate with logic thread");
 
                             let command = TransmitterCommand::Quit;
-                            let _ = self.get_transmitter_tx().send(command);
+                            self.get_transmitter_tx().send(command).expect("Cannot communicate with transmitter thread");
 
-                            // break 'command_loop
+                            break 'command_loop
+                        }
+                        Command::AddNeighbor(node_id, channel) => {
+                            let command = TransmitterCommand::AddNeighbor(node_id, channel);
+                            self.get_transmitter_tx().send(command).expect("Cannot communicate with transmitter thread");
+                        }
+                        Command::RemoveNeighbor(node_id) => {
+                            let command = TransmitterCommand::RemoveNeighbor(node_id);
+                            self.get_transmitter_tx().send(command).expect("Cannot communicate with transmitter thread");
                         }
                     }
                 }
@@ -293,7 +303,7 @@ pub trait DibServerTrait: DibGetter {
                     panic!("{error}");
                 }
             }
-        // }
+        }
 
         let _ = listener_handle.join();
         let _ = server_logic_handle.join();
