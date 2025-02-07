@@ -1,3 +1,5 @@
+// #![allow(unused_variables)]
+
 use std::collections::HashMap;
 use std::thread;
 use assembler::Assembler;
@@ -8,11 +10,12 @@ use messages::node_event::NodeEvent;
 use ntest::timeout;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodResponse, NodeType, Packet, PacketType};
-use ap_server::{DibServer, Command, DibGetter, DibServerTrait};
+use ap_server::{DibServer, DibGetter, DibServerTrait, Command};
 use crate::common::{process_initial_flood_requests, send_message_and_receive_acks};
 
 mod common;
 
+// TODO: check again
 #[test]
 #[timeout(2000)]
 fn check_communication() -> std::thread::Result<()> {
@@ -32,12 +35,23 @@ fn check_communication() -> std::thread::Result<()> {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_communication_server(
         server_node_id,
         server_public_rx,
         connected_drones,
-        server_to_sc_tx
+        server_to_sc_tx,
+        drone_command_rx
     );
+
+    // let mut server = DibServer::new_communication_server(
+    //     server_node_id,
+    //     server_public_rx,
+    //     connected_drones,
+    //     server_to_sc_tx,
+    //     drone_command_rx
+    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("communication_server_{}", server.get_node_id()))
@@ -256,12 +270,23 @@ fn check_unsupported_request() -> std::thread::Result<()> {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_communication_server(
         server_node_id,
         server_public_rx,
         connected_drones,
         server_to_sc_tx,
+        drone_command_rx
     );
+
+    // let mut server = DibServer::new_communication_server(
+    //     server_node_id,
+    //     server_public_rx,
+    //     connected_drones,
+    //     server_to_sc_tx,
+    //     drone_command_rx
+    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -336,12 +361,23 @@ fn check_unexpected_message() -> std::thread::Result<()> {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_communication_server(
         server_node_id,
         server_public_rx,
         connected_drones,
         server_to_sc_tx,
+        drone_command_rx
     );
+
+    // let mut server = DibServer::new_communication_server(
+    //     server_node_id,
+    //     server_public_rx,
+    //     connected_drones,
+    //     server_to_sc_tx,
+    //     drone_command_rx
+    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -404,8 +440,8 @@ fn check_error_processing() -> std::thread::Result<()> {
 
     let mut connected_drones = HashMap::new();
     let mut drones = HashMap::new();
-    let (tx, rx) = unbounded();
 
+    let (tx, rx) = unbounded();
     connected_drones.insert(1, tx);
     drones.insert(1, rx);
 
@@ -416,11 +452,14 @@ fn check_error_processing() -> std::thread::Result<()> {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_communication_server(
         server_node_id,
         server_public_rx,
         connected_drones,
         server_to_sc_tx,
+        drone_command_rx
     );
 
     let server_handler = thread::Builder::new()

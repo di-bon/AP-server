@@ -2,17 +2,20 @@ use std::fs;
 use std::path::Path;
 use crossbeam_channel::{Receiver, Sender};
 use messages::{ErrorType, MediaRequest, MediaResponse, Message, MessageType, RequestType, ResponseType, ServerType, TextRequest, TextResponse};
+use wg_2024::controller::DroneCommand;
 use wg_2024::network::NodeId;
-use crate::logic::{Command, Getter, Server};
+use crate::logic::{Getter, Server, ServerCommand as ServerCommand};
 
 pub struct ContentServer {
     node_id: NodeId,
     server_logic_to_transmitter_tx: Sender<Message>,
     listener_to_server_logic_rx: Receiver<Message>,
-    command_rx: Receiver<Command>,
+    command_rx: Receiver<ServerCommand>,
     text_resources: Vec<String>,
     media_resources: Vec<String>,
     resources_path: String,
+    // drone_command_rx: Receiver<DroneCommand>,
+    // server_to_transmitter_drone_command_tx: Sender<DroneCommand>,
 }
 
 impl Getter for ContentServer {
@@ -20,7 +23,7 @@ impl Getter for ContentServer {
         self.node_id
     }
 
-    fn get_command_rx(&self) -> &Receiver<Command> {
+    fn get_server_command_rx(&self) -> &Receiver<ServerCommand> {
         &self.command_rx
     }
 
@@ -31,6 +34,14 @@ impl Getter for ContentServer {
     fn get_server_logic_to_transmitter_tx(&self) -> &Sender<Message> {
         &self.server_logic_to_transmitter_tx
     }
+
+    // fn get_drone_command_rx(&self) -> &Receiver<DroneCommand> {
+    //     &self.drone_command_rx
+    // }
+    //
+    // fn get_logic_to_transmitter_drone_command_tx(&self) -> &Sender<DroneCommand> {
+    //     &self.server_to_transmitter_drone_command_tx
+    // }
 }
 
 impl Server for ContentServer {
@@ -61,8 +72,10 @@ impl ContentServer {
         node_id: NodeId,
         server_logic_to_transmitter_tx: Sender<Message>,
         listener_to_server_logic_rx: Receiver<Message>,
-        command_rx: Receiver<Command>,
+        command_rx: Receiver<ServerCommand>,
         resources_path: String,
+        // drone_command_rx: Receiver<DroneCommand>,
+        // server_to_transmitter_drone_command_tx: Sender<DroneCommand>,
     ) -> Self {
         let mut result = Self {
             node_id,
@@ -72,6 +85,8 @@ impl ContentServer {
             text_resources: vec![],
             media_resources: vec![],
             resources_path,
+            // drone_command_rx,
+            // server_to_transmitter_drone_command_tx,
         };
         result.update_resources();
         result
@@ -209,21 +224,20 @@ impl ContentServer {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused_variables)]
     use std::sync::{Arc, Mutex};
     use std::thread;
     use crossbeam_channel::unbounded;
     use messages::ChatRequest;
     use super::*;
 
-    fn create_content_server(node_id: NodeId, resources_path: String) -> (
-        ContentServer,
-        Receiver<Message>,
-        Sender<Message>,
-        Sender<Command>,
-    ) {
+    fn create_content_server(node_id: NodeId, resources_path: String) -> (ContentServer, Receiver<Message>, Sender<Message>, Sender<ServerCommand>, Sender<DroneCommand>, Receiver<DroneCommand>) {
         let (logic_to_transmitter_tx, logic_to_transmitter_rx) = unbounded();
         let (listener_to_logic_tx, listener_to_logic_rx) = unbounded();
         let (command_tx, command_rx) = unbounded();
+
+        let (drone_command_tx, drone_command_rx) = unbounded();
+        let (server_to_transmitter_drone_command_tx, server_to_transmitter_drone_command_rx) = unbounded();
 
         let server = ContentServer::new(
             node_id,
@@ -231,8 +245,10 @@ mod tests {
             listener_to_logic_rx,
             command_rx,
             resources_path,
+            // drone_command_rx,
+            // server_to_transmitter_drone_command_tx,
         );
-        (server, logic_to_transmitter_rx, listener_to_logic_tx, command_tx)
+        (server, logic_to_transmitter_rx, listener_to_logic_tx, command_tx, drone_command_tx, server_to_transmitter_drone_command_rx)
     }
 
     #[test]
@@ -243,7 +259,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_content_server(node_id, resources_path.clone());
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
 
         assert_eq!(server.node_id, node_id);
         let mut expected_text_resources = vec!["the quacking duck.txt".to_string(), "rust.txt".to_string()];
@@ -267,7 +285,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_content_server(node_id, resources_path.clone());
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -341,7 +361,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_content_server(node_id, resources_path.clone());
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -382,7 +404,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_content_server(node_id, resources_path.clone());
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -456,7 +480,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_content_server(node_id, resources_path.clone());
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -497,7 +523,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_content_server(node_id, resources_path.clone());
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -534,7 +562,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_content_server(node_id, resources_path.clone());
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();

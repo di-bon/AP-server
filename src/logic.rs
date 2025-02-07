@@ -3,31 +3,62 @@ mod content_server;
 
 use crossbeam_channel::{select, Receiver, Sender};
 use messages::{ErrorType, Message, MessageType, RequestType, ResponseType};
+use wg_2024::controller::DroneCommand;
 use wg_2024::network::NodeId;
 pub use crate::logic::communication_server::CommunicationServer;
 pub use crate::logic::content_server::ContentServer;
 
-pub enum Command {
+pub enum ServerCommand {
     Quit,
 }
 
 pub trait Getter {
     fn get_node_id(&self) -> NodeId;
-    fn get_command_rx(&self) -> &Receiver<Command>;
+    fn get_server_command_rx(&self) -> &Receiver<ServerCommand>;
     fn get_listener_to_server_logic_rx(&self) -> &Receiver<Message>;
     fn get_server_logic_to_transmitter_tx(&self) -> &Sender<Message>;
+    // fn get_drone_command_rx(&self) -> &Receiver<DroneCommand>;
+    // fn get_logic_to_transmitter_drone_command_tx(&self) -> &Sender<DroneCommand>;
 }
 
 pub trait Server: Getter + Send {
     fn run(&mut self) {
         loop {
             select! {
-                recv(self.get_command_rx()) -> command => {
+                /*
+                recv(self.get_drone_command_rx()) -> drone_command => {
+                    if let Ok(drone_command) = drone_command {
+                        match drone_command {
+                            DroneCommand::AddSender(_, _)
+                            | DroneCommand::RemoveSender(_) => {
+                                self
+                                    .get_logic_to_transmitter_drone_command_tx()
+                                    .send(drone_command)
+                                    .expect("Cannot send DroneCommand to transmitter");
+                            },
+                            DroneCommand::SetPacketDropRate(_)
+                            | DroneCommand::Crash => {
+                                panic!("Received unsupported {drone_command:?}");
+                            }
+                        }
+                    }
+                    panic!("Error while receiving DroneCommand");
+                },
+                 */
+                recv(self.get_server_command_rx()) -> command => {
                     if let Ok(command) = command {
                         match command {
-                            Command::Quit => {
+                            ServerCommand::Quit => {
                                 break;
+                            },
+                            /*
+                            Command::RemoveNeighbor(node_id) => {
+
+                            },
+                            Command::AddNeighbor(node_id, channel) => {
+
                             }
+                             */
                         }
                     }
                     panic!("Error while receiving ServerLogicCommand");

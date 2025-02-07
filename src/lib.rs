@@ -9,14 +9,15 @@ use wg_2024::packet::{NodeType, Packet};
 use ap_transmitter::{Transmitter, Command as TransmitterCommand};
 use ap_sc_notifier::SimulationControllerNotifier;
 use ap_listener::{Listener, Command as ListenerCommand};
-use crate::logic::{Command as ServerCommand, CommunicationServer, ContentServer, Getter, Server};
+use wg_2024::controller::DroneCommand;
+use crate::logic::{ServerCommand, CommunicationServer, ContentServer, Getter, Server};
 
 mod logic;
 
 pub enum Command {
     Quit,
-    AddNeighbor(NodeId, Sender<Packet>),
-    RemoveNeighbor(NodeId),
+    // AddNeighbor(NodeId, Sender<Packet>),
+    // RemoveNeighbor(NodeId),
 }
 
 pub struct DibServer {
@@ -27,6 +28,7 @@ pub struct DibServer {
     logic_command_tx: Sender<ServerCommand>,
     transmitter: Arc<Mutex<Transmitter>>,
     transmitter_command_tx: Sender<TransmitterCommand>,
+    // drone_command_rx: Receiver<DroneCommand>,
     command_rx: Receiver<Command>,
 }
 
@@ -41,6 +43,7 @@ impl DibServer {
         drones_tx: HashMap<NodeId, Sender<Packet>>,
         simulation_controller_tx: Sender<NodeEvent>,
         resource_path: String,
+        drone_command_rx: Receiver<DroneCommand>,
     ) -> (Self, Sender<Command>) {
         let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded();
         let (listener_to_server_logic_tx, listener_to_server_logic_rx) = unbounded();
@@ -52,6 +55,8 @@ impl DibServer {
 
         let (transmitter_command_tx, transmitter_command_rx) = unbounded();
 
+        // let (server_to_transmitter_drone_command_tx, server_to_transmitter_drone_command_rx) = unbounded();
+
         let transmitter = Transmitter::new(
             node_id,
             NodeType::Server,
@@ -61,6 +66,8 @@ impl DibServer {
             simulation_controller_notifier.clone(),
             transmitter_command_rx,
             Duration::from_secs(60),
+            drone_command_rx,
+            // server_to_transmitter_drone_command_rx
         );
 
         let listener = Listener::new(
@@ -72,14 +79,16 @@ impl DibServer {
             simulation_controller_notifier.clone(),
         );
 
-        let (logic_command_tx, logic_command_rx) = unbounded();
+        let (server_command_tx, server_command_rx) = unbounded();
 
         let logic = ContentServer::new(
             node_id,
             logic_to_transmitter_tx,
             listener_to_server_logic_rx,
-            logic_command_rx,
+            server_command_rx,
             resource_path,
+            // drone_command_rx,
+            // server_to_transmitter_drone_command_tx,
         );
 
         assert_eq!(transmitter.get_node_id(), listener.get_node_id());
@@ -96,9 +105,10 @@ impl DibServer {
             listener,
             listener_command_tx,
             logic,
-            logic_command_tx,
+            logic_command_tx: server_command_tx,
             transmitter,
             transmitter_command_tx,
+            // drone_command_rx,
             command_rx,
         };
 
@@ -114,6 +124,7 @@ impl DibServer {
         listener_rx: Receiver<Packet>,
         drones_tx: HashMap<NodeId, Sender<Packet>>,
         simulation_controller_tx: Sender<NodeEvent>,
+        drone_command_rx: Receiver<DroneCommand>,
     ) -> (Self, Sender<Command>) {
         let (listener_to_transmitter_tx, listener_to_transmitter_rx) = unbounded();
         let (listener_to_server_logic_tx, listener_to_server_logic_rx) = unbounded();
@@ -125,6 +136,8 @@ impl DibServer {
 
         let (transmitter_command_tx, transmitter_command_rx) = unbounded();
 
+        // let (server_to_transmitter_drone_command_tx, server_to_transmitter_drone_command_rx) = unbounded();
+
         let transmitter = Transmitter::new(
             node_id,
             NodeType::Server,
@@ -134,6 +147,7 @@ impl DibServer {
             simulation_controller_notifier.clone(),
             transmitter_command_rx,
             Duration::from_secs(60),
+            drone_command_rx
         );
 
         let listener = Listener::new(
@@ -152,6 +166,8 @@ impl DibServer {
             logic_to_transmitter_tx,
             listener_to_server_logic_rx,
             logic_command_rx,
+            // drone_command_rx,
+            // server_to_transmitter_drone_command_tx
         );
 
         assert_eq!(transmitter.get_node_id(), listener.get_node_id());
@@ -175,6 +191,7 @@ impl DibServer {
         };
 
         (result, command_tx)
+        // result
     }
 }
 
@@ -209,6 +226,10 @@ impl DibGetter for DibServer {
     fn get_logic_tx(&self) -> &Sender<ServerCommand> {
         &self.logic_command_tx
     }
+
+    // fn get_logic_tx(&self) -> &Sender<Command> {
+    //     &self.logic_command_tx
+    // }
 
     fn get_transmitter(&self) -> Arc<Mutex<Transmitter>> {
         self.transmitter.clone()
@@ -289,15 +310,17 @@ pub trait DibServerTrait: DibGetter {
                             self.get_transmitter_tx().send(command).expect("Cannot communicate with transmitter thread");
 
                             break 'command_loop
-                        }
+                        },
+                        /*
                         Command::AddNeighbor(node_id, channel) => {
                             let command = TransmitterCommand::AddNeighbor(node_id, channel);
                             self.get_transmitter_tx().send(command).expect("Cannot communicate with transmitter thread");
-                        }
+                        },
                         Command::RemoveNeighbor(node_id) => {
                             let command = TransmitterCommand::RemoveNeighbor(node_id);
                             self.get_transmitter_tx().send(command).expect("Cannot communicate with transmitter thread");
-                        }
+                        },
+                         */
                     }
                 }
                 Err(error) => {

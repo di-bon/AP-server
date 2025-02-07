@@ -2,47 +2,45 @@ use std::collections::HashSet;
 use crossbeam_channel::{Receiver, Sender};
 use messages::{ChatRequest, ChatResponse, ErrorType, Message, MessageType, RequestType, ResponseType, ServerType};
 use rand::Rng;
+use wg_2024::controller::DroneCommand;
 use wg_2024::network::NodeId;
-use crate::logic::{Command, Getter, Server};
+use crate::logic::{ServerCommand as ServerCommand, Getter, Server};
 
 #[derive(Debug)]
 pub struct CommunicationServer {
     node_id: NodeId,
     server_logic_to_transmitter_tx: Sender<Message>,
     listener_to_server_logic_rx: Receiver<Message>,
-    command_rx: Receiver<Command>,
+    server_command_rx: Receiver<ServerCommand>,
+    // drone_command_rx: Receiver<DroneCommand>,
+    // server_to_transmitter_drone_command_tx: Sender<DroneCommand>,
     registered: HashSet<NodeId>,
-    // messages: HashMap<NodeId, Vec<MessageInfo>>,
 }
-
-// struct MessageInfo {
-//     from: NodeId,
-//     message: String,
-// }
-//
-// impl MessageInfo {
-//     fn new(from: NodeId, message: String) -> Self {
-//         Self {
-//             from, message
-//         }
-//     }
-// }
 
 impl Getter for CommunicationServer {
     fn get_node_id(&self) -> NodeId {
         self.node_id
     }
 
-    fn get_command_rx(&self) -> &Receiver<Command> {
-        &self.command_rx
+    fn get_server_command_rx(&self) -> &Receiver<ServerCommand> {
+        &self.server_command_rx
     }
 
     fn get_listener_to_server_logic_rx(&self) -> &Receiver<Message> {
         &self.listener_to_server_logic_rx
     }
+
     fn get_server_logic_to_transmitter_tx(&self) -> &Sender<Message> {
         &self.server_logic_to_transmitter_tx
     }
+
+    // fn get_drone_command_rx(&self) -> &Receiver<DroneCommand> {
+    //     &self.drone_command_rx
+    // }
+    //
+    // fn get_logic_to_transmitter_drone_command_tx(&self) -> &Sender<DroneCommand> {
+    //     &self.server_to_transmitter_drone_command_tx
+    // }
 }
 
 impl Server for CommunicationServer {
@@ -114,15 +112,18 @@ impl CommunicationServer {
         node_id: NodeId,
         server_logic_to_transmitter_tx: Sender<Message>,
         listener_to_server_logic_rx: Receiver<Message>,
-        command_rx: Receiver<Command>
+        command_rx: Receiver<ServerCommand>,
+        // drone_command_rx: Receiver<DroneCommand>,
+        // server_to_transmitter_drone_command_tx: Sender<DroneCommand>,
     ) -> Self {
         Self {
             node_id,
             server_logic_to_transmitter_tx,
             listener_to_server_logic_rx,
-            command_rx,
+            server_command_rx: command_rx,
+            // drone_command_rx,
+            // server_to_transmitter_drone_command_tx,
             registered: HashSet::new(),
-            // messages: HashMap::new(),
         }
     }
 
@@ -133,6 +134,7 @@ impl CommunicationServer {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused_variables)]
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
@@ -141,23 +143,22 @@ mod tests {
     use ntest::assert_false;
     use super::*;
 
-    fn create_communication_server(node_id: NodeId) -> (
-        CommunicationServer,
-        Receiver<Message>,
-        Sender<Message>,
-        Sender<Command>,
-    ) {
+    fn create_communication_server(node_id: NodeId) -> (CommunicationServer, Receiver<Message>, Sender<Message>, Sender<ServerCommand>, Sender<DroneCommand>, Receiver<DroneCommand>) {
         let (logic_to_transmitter_tx, logic_to_transmitter_rx) = unbounded();
         let (listener_to_logic_tx, listener_to_logic_rx) = unbounded();
         let (command_tx, command_rx) = unbounded();
+        let (drone_command_tx, drone_command_rx) = unbounded();
+        let (server_to_transmitter_drone_command_tx, server_to_transmitter_drone_command_rx) = unbounded();
 
         let server = CommunicationServer::new(
             node_id,
             logic_to_transmitter_tx,
             listener_to_logic_rx,
             command_rx,
+            // drone_command_rx,
+            // server_to_transmitter_drone_command_tx
         );
-        (server, logic_to_transmitter_rx, listener_to_logic_tx, command_tx)
+        (server, logic_to_transmitter_rx, listener_to_logic_tx, command_tx, drone_command_tx, server_to_transmitter_drone_command_rx)
     }
     #[test]
     fn initialize() {
@@ -165,7 +166,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_communication_server(node_id);
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_communication_server(node_id);
 
         assert_eq!(server.node_id, node_id);
     }
@@ -176,7 +179,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_communication_server(node_id);
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_communication_server(node_id);
 
         let source: NodeId = 10;
         assert_false!(server.is_registered(source));
@@ -198,7 +203,7 @@ mod tests {
 
         thread::sleep(Duration::from_millis(20));
 
-        let _ = command_tx.send(Command::Quit);
+        let _ = command_tx.send(ServerCommand::Quit);
 
         assert!(server.lock().unwrap().is_registered(source));
     }
@@ -209,7 +214,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_communication_server(node_id);
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_communication_server(node_id);
 
         for node_id in 3..6 {
             let register_request = Message {
@@ -239,7 +246,7 @@ mod tests {
 
         thread::sleep(Duration::from_millis(20));
 
-        let _ = command_tx.send(Command::Quit);
+        let _ = command_tx.send(ServerCommand::Quit);
 
         for node_id in 3..6 {
             assert!(server.lock().unwrap().is_registered(node_id));
@@ -289,7 +296,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_communication_server(node_id);
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_communication_server(node_id);
 
         let sender_node = 1;
         let session_id = 12;
@@ -359,7 +368,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_communication_server(node_id);
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_communication_server(node_id);
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -421,7 +432,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_communication_server(node_id);
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_communication_server(node_id);
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -456,7 +469,9 @@ mod tests {
         let (server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
-            command_tx) = create_communication_server(node_id);
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx) = create_communication_server(node_id);
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();

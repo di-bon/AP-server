@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 use std::collections::HashMap;
 use std::ptr::read;
 use std::thread;
@@ -31,13 +33,25 @@ fn check_text_requests() -> std::thread::Result<()> {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_content_server(
         server_node_id,
         server_public_rx,
         connected_drones,
         server_to_sc_tx,
-        "./res".to_string()
+        "./res".to_string(),
+        drone_command_rx
     );
+
+    // let mut server = DibServer::new_content_server(
+    //     server_node_id,
+    //     server_public_rx,
+    //     connected_drones,
+    //     server_to_sc_tx,
+    //     "./res".to_string(),
+    //     drone_command_rx
+    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -112,13 +126,25 @@ fn check_text_not_found() {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_content_server(
         server_node_id,
         server_public_rx,
         connected_drones,
         server_to_sc_tx,
-        "./res".to_string()
+        "./res".to_string(),
+        drone_command_rx
     );
+
+    // let mut server = DibServer::new_content_server(
+    //     server_node_id,
+    //     server_public_rx,
+    //     connected_drones,
+    //     server_to_sc_tx,
+    //     "./res".to_string(),
+    //     drone_command_rx
+    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -188,13 +214,25 @@ fn check_media_requests() -> std::thread::Result<()> {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_content_server(
         server_node_id,
         server_public_rx,
         connected_drones,
         server_to_sc_tx,
-        "./res".to_string()
+        "./res".to_string(),
+        drone_command_rx
     );
+
+    // let mut server = DibServer::new_content_server(
+    //     server_node_id,
+    //     server_public_rx,
+    //     connected_drones,
+    //     server_to_sc_tx,
+    //     "./res".to_string(),
+    //     drone_command_rx
+    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -269,13 +307,25 @@ fn check_media_not_found() {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_content_server(
         server_node_id,
         server_public_rx,
         connected_drones,
         server_to_sc_tx,
-        "./res".to_string()
+        "./res".to_string(),
+        drone_command_rx
     );
+
+    // let mut server = DibServer::new_content_server(
+    //     server_node_id,
+    //     server_public_rx,
+    //     connected_drones,
+    //     server_to_sc_tx,
+    //     "./res".to_string(),
+    //     drone_command_rx
+    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -345,13 +395,25 @@ fn check_unsupported_request() -> std::thread::Result<()> {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_content_server(
         server_node_id,
         server_public_rx,
         connected_drones,
         server_to_sc_tx,
-        "./res".to_string()
+        "./res".to_string(),
+        drone_command_rx
     );
+
+    // let mut server = DibServer::new_content_server(
+    //     server_node_id,
+    //     server_public_rx,
+    //     connected_drones,
+    //     server_to_sc_tx,
+    //     "./res".to_string(),
+    //     drone_command_rx
+    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -426,13 +488,25 @@ fn check_unexpected_message() -> std::thread::Result<()> {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_content_server(
         server_node_id,
         server_public_rx,
         connected_drones,
         server_to_sc_tx,
-        "./res".to_string()
+        "./res".to_string(),
+        drone_command_rx
     );
+
+    // let mut server = DibServer::new_content_server(
+    //     server_node_id,
+    //     server_public_rx,
+    //     connected_drones,
+    //     server_to_sc_tx,
+    //     "./res".to_string(),
+    //     drone_command_rx
+    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -507,13 +581,25 @@ fn check_error_processing() -> std::thread::Result<()> {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_content_server(
         server_node_id,
         server_public_rx,
         connected_drones,
         server_to_sc_tx,
-        "./res".to_string()
+        "./res".to_string(),
+        drone_command_rx
     );
+
+    // let mut server = DibServer::new_content_server(
+    //     server_node_id,
+    //     server_public_rx,
+    //     connected_drones,
+    //     server_to_sc_tx,
+    //     "./res".to_string(),
+    //     drone_command_rx
+    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -576,8 +662,8 @@ fn check_no_resources_found() -> std::thread::Result<()> {
 
     let mut connected_drones = HashMap::new();
     let mut drones = HashMap::new();
-    let (tx, rx) = unbounded();
 
+    let (tx, rx) = unbounded();
     connected_drones.insert(1, tx);
     drones.insert(1, rx);
 
@@ -588,12 +674,15 @@ fn check_no_resources_found() -> std::thread::Result<()> {
     let (server_public_tx, server_public_rx) = unbounded();
     let (server_to_sc_tx, server_to_sc_rx) = unbounded();
 
+    let (drone_command_tx, drone_command_rx) = unbounded();
+
     let (mut server, command_tx) = DibServer::new_content_server(
         server_node_id,
         server_public_rx,
         connected_drones,
         server_to_sc_tx,
-        "./adgkjnaskgjao".to_string()
+        "./non-existent".to_string(),
+        drone_command_rx
     );
 
     let server_handler = thread::Builder::new()
