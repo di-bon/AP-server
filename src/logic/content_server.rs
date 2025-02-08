@@ -1,9 +1,12 @@
+use crate::logic::{Getter, Server, ServerCommand};
+use crossbeam_channel::{Receiver, Sender};
+use messages::{
+    ErrorType, MediaRequest, MediaResponse, Message, MessageType, RequestType, ResponseType,
+    ServerType, TextRequest, TextResponse,
+};
 use std::fs;
 use std::path::Path;
-use crossbeam_channel::{Receiver, Sender};
-use messages::{ErrorType, MediaRequest, MediaResponse, Message, MessageType, RequestType, ResponseType, ServerType, TextRequest, TextResponse};
 use wg_2024::network::NodeId;
-use crate::logic::{Getter, Server, ServerCommand as ServerCommand};
 
 pub struct ContentServer {
     node_id: NodeId,
@@ -39,7 +42,7 @@ impl Server for ContentServer {
         match request_type {
             RequestType::TextRequest(text_request) => {
                 self.process_text_request(session_id, source, text_request);
-            },
+            }
             RequestType::MediaRequest(media_request) => {
                 self.process_media_request(session_id, source, media_request);
             }
@@ -49,7 +52,9 @@ impl Server for ContentServer {
                 self.send_message_to_transmitter(response);
             }
             RequestType::DiscoveryRequest(()) => {
-                let content = MessageType::Response(ResponseType::DiscoveryResponse(ServerType::ContentServer));
+                let content = MessageType::Response(ResponseType::DiscoveryResponse(
+                    ServerType::ContentServer,
+                ));
                 let response = self.create_message(session_id, source, content);
                 self.send_message_to_transmitter(response);
             }
@@ -80,53 +85,57 @@ impl ContentServer {
 
     /// Updates the available resources found at `self.resources_path`
     fn update_resources(&mut self) {
-        let text_resources = Self::get_available_files(&self.resources_path, "txt").unwrap_or_else(|err| {
-            log::warn!("No text resources available at {}. Reason: {err:?}", self.resources_path);
-            vec![]
-        });
-        let media_resources = Self::get_available_files(&self.resources_path, "png").unwrap_or_else(|err| {
-            log::warn!("No media resources available at {}. Reason: {err:?}", self.resources_path);
-            vec![]
-        });
+        let text_resources =
+            Self::get_available_files(&self.resources_path, "txt").unwrap_or_else(|err| {
+                log::warn!(
+                    "No text resources available at {}. Reason: {err:?}",
+                    self.resources_path
+                );
+                vec![]
+            });
+        let media_resources = Self::get_available_files(&self.resources_path, "png")
+            .unwrap_or_else(|err| {
+                log::warn!(
+                    "No media resources available at {}. Reason: {err:?}",
+                    self.resources_path
+                );
+                vec![]
+            });
         self.text_resources = text_resources;
         self.media_resources = media_resources;
     }
 
     /// Processes a `TextRequest`
-    fn process_text_request(&mut self, session_id: u64, source: NodeId, text_request: &TextRequest) {
+    fn process_text_request(
+        &mut self,
+        session_id: u64,
+        source: NodeId,
+        text_request: &TextRequest,
+    ) {
         let content = match text_request {
-            TextRequest::TextList => {
-                MessageType::Response(
-                    ResponseType::TextResponse(
-                        TextResponse::TextList(
-                            self.text_resources.clone()
-                        )
-                    )
-                )
-            }
+            TextRequest::TextList => MessageType::Response(ResponseType::TextResponse(
+                TextResponse::TextList(self.text_resources.clone()),
+            )),
             TextRequest::Text(requested_file) => {
-                let filename = self.text_resources.iter().find(|res| *res == requested_file);
+                let filename = self
+                    .text_resources
+                    .iter()
+                    .find(|res| *res == requested_file);
                 match filename {
-                    Some(filename) => {
-                        match self.read_file(filename) {
-                            Ok(text) => {
-                                MessageType::Response(
-                                    ResponseType::TextResponse(
-                                        TextResponse::Text(
-                                            text
-                                        )
-                                    )
-                                )
-                            }
-                            Err(error) => {
-                                log::warn!("Error while reading file {filename}. Error: {error:?}");
-                                MessageType::Response(ResponseType::TextResponse(TextResponse::NotFound(requested_file.clone())))
-                            }
+                    Some(filename) => match self.read_file(filename) {
+                        Ok(text) => MessageType::Response(ResponseType::TextResponse(
+                            TextResponse::Text(text),
+                        )),
+                        Err(error) => {
+                            log::warn!("Error while reading file {filename}. Error: {error:?}");
+                            MessageType::Response(ResponseType::TextResponse(
+                                TextResponse::NotFound(requested_file.clone()),
+                            ))
                         }
                     },
-                    None => {
-                        MessageType::Response(ResponseType::TextResponse(TextResponse::NotFound(requested_file.clone())))
-                    },
+                    None => MessageType::Response(ResponseType::TextResponse(
+                        TextResponse::NotFound(requested_file.clone()),
+                    )),
                 }
             }
         };
@@ -147,40 +156,36 @@ impl ContentServer {
     }
 
     /// Processes a `MediaRequest`
-    fn process_media_request(&mut self, session_id: u64, source: NodeId, media_request: &MediaRequest) {
+    fn process_media_request(
+        &mut self,
+        session_id: u64,
+        source: NodeId,
+        media_request: &MediaRequest,
+    ) {
         let content = match media_request {
-            MediaRequest::MediaList => {
-                MessageType::Response(
-                    ResponseType::MediaResponse(
-                        MediaResponse::MediaList(
-                            self.media_resources.clone()
-                        )
-                    )
-                )
-            }
+            MediaRequest::MediaList => MessageType::Response(ResponseType::MediaResponse(
+                MediaResponse::MediaList(self.media_resources.clone()),
+            )),
             MediaRequest::Media(requested_media) => {
-                let filename = self.media_resources.iter().find(|res| *res == requested_media);
+                let filename = self
+                    .media_resources
+                    .iter()
+                    .find(|res| *res == requested_media);
                 match filename {
-                    Some(filename) => {
-                        match self.read_file_as_bytes(filename) {
-                            Ok(media_bytes) => {
-                                MessageType::Response(
-                                    ResponseType::MediaResponse(
-                                        MediaResponse::Media(
-                                            media_bytes
-                                        )
-                                    )
-                                )
-                            }
-                            Err(error) => {
-                                log::warn!("Error while reading file {filename}. Error: {error:?}");
-                                MessageType::Response(ResponseType::MediaResponse(MediaResponse::NotFound(requested_media.clone())))
-                            }
+                    Some(filename) => match self.read_file_as_bytes(filename) {
+                        Ok(media_bytes) => MessageType::Response(ResponseType::MediaResponse(
+                            MediaResponse::Media(media_bytes),
+                        )),
+                        Err(error) => {
+                            log::warn!("Error while reading file {filename}. Error: {error:?}");
+                            MessageType::Response(ResponseType::MediaResponse(
+                                MediaResponse::NotFound(requested_media.clone()),
+                            ))
                         }
                     },
-                    None => {
-                        MessageType::Response(ResponseType::MediaResponse(MediaResponse::NotFound(requested_media.clone())))
-                    },
+                    None => MessageType::Response(ResponseType::MediaResponse(
+                        MediaResponse::NotFound(requested_media.clone()),
+                    )),
                 }
             }
         };
@@ -217,20 +222,31 @@ impl ContentServer {
 #[cfg(test)]
 mod tests {
     #![allow(unused_variables)]
-    use std::sync::{Arc, Mutex};
-    use std::thread;
+    use super::*;
     use crossbeam_channel::unbounded;
     use messages::ChatRequest;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
     use wg_2024::controller::DroneCommand;
-    use super::*;
 
-    fn create_content_server(node_id: NodeId, resources_path: String) -> (ContentServer, Receiver<Message>, Sender<Message>, Sender<ServerCommand>, Sender<DroneCommand>, Receiver<DroneCommand>) {
+    fn create_content_server(
+        node_id: NodeId,
+        resources_path: String,
+    ) -> (
+        ContentServer,
+        Receiver<Message>,
+        Sender<Message>,
+        Sender<ServerCommand>,
+        Sender<DroneCommand>,
+        Receiver<DroneCommand>,
+    ) {
         let (logic_to_transmitter_tx, logic_to_transmitter_rx) = unbounded();
         let (listener_to_logic_tx, listener_to_logic_rx) = unbounded();
         let (command_tx, command_rx) = unbounded();
 
         let (drone_command_tx, drone_command_rx) = unbounded();
-        let (server_to_transmitter_drone_command_tx, server_to_transmitter_drone_command_rx) = unbounded();
+        let (server_to_transmitter_drone_command_tx, server_to_transmitter_drone_command_rx) =
+            unbounded();
 
         let server = ContentServer::new(
             node_id,
@@ -239,7 +255,14 @@ mod tests {
             command_rx,
             resources_path,
         );
-        (server, logic_to_transmitter_rx, listener_to_logic_tx, command_tx, drone_command_tx, server_to_transmitter_drone_command_rx)
+        (
+            server,
+            logic_to_transmitter_rx,
+            listener_to_logic_tx,
+            command_tx,
+            drone_command_tx,
+            server_to_transmitter_drone_command_rx,
+        )
     }
 
     #[test]
@@ -247,15 +270,18 @@ mod tests {
         let node_id = 0;
         let resources_path = "./res".to_string();
 
-        let (server,
+        let (
+            server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
             command_tx,
             drone_command_tx,
-            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
+            server_to_transmitter_drone_command_rx,
+        ) = create_content_server(node_id, resources_path.clone());
 
         assert_eq!(server.node_id, node_id);
-        let mut expected_text_resources = vec!["the quacking duck.txt".to_string(), "rust.txt".to_string()];
+        let mut expected_text_resources =
+            vec!["the quacking duck.txt".to_string(), "rust.txt".to_string()];
         expected_text_resources.sort();
         let mut server_text_resources = server.text_resources.clone();
         server_text_resources.sort();
@@ -273,12 +299,14 @@ mod tests {
         let node_id = 0;
         let resources_path = "./res".to_string();
 
-        let (server,
+        let (
+            server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
             command_tx,
             drone_command_tx,
-            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
+            server_to_transmitter_drone_command_rx,
+        ) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -301,22 +329,19 @@ mod tests {
 
         let panic_message = "Wrong response";
         let mut response_text_list = match response.content {
-            MessageType::Response(response) => {
-                match response {
-                    ResponseType::TextResponse(text_response) => {
-                        match text_response {
-                            TextResponse::TextList(list) => list,
-                            _ => panic!("{panic_message}"),
-                        }
-                    },
+            MessageType::Response(response) => match response {
+                ResponseType::TextResponse(text_response) => match text_response {
+                    TextResponse::TextList(list) => list,
                     _ => panic!("{panic_message}"),
-                }
-            }
+                },
+                _ => panic!("{panic_message}"),
+            },
             _ => panic!("{panic_message}"),
         };
         response_text_list.sort();
 
-        let mut expected_text_list = vec!["the quacking duck.txt".to_string(), "rust.txt".to_string()];
+        let mut expected_text_list =
+            vec!["the quacking duck.txt".to_string(), "rust.txt".to_string()];
         expected_text_list.sort();
 
         assert_eq!(response_text_list, expected_text_list);
@@ -326,7 +351,9 @@ mod tests {
             source: sender,
             destination: node_id,
             session_id,
-            content: MessageType::Request(RequestType::TextRequest(TextRequest::Text("the quacking duck.txt".to_string()))),
+            content: MessageType::Request(RequestType::TextRequest(TextRequest::Text(
+                "the quacking duck.txt".to_string(),
+            ))),
         };
 
         let _ = listener_to_logic_tx.send(text_request);
@@ -338,7 +365,9 @@ mod tests {
             source: node_id,
             destination: sender,
             session_id,
-            content: MessageType::Response(ResponseType::TextResponse(TextResponse::Text(quacking_duck_content))),
+            content: MessageType::Response(ResponseType::TextResponse(TextResponse::Text(
+                quacking_duck_content,
+            ))),
         };
 
         assert_eq!(response, expected);
@@ -349,12 +378,14 @@ mod tests {
         let node_id = 0;
         let resources_path = "./res".to_string();
 
-        let (server,
+        let (
+            server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
             command_tx,
             drone_command_tx,
-            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
+            server_to_transmitter_drone_command_rx,
+        ) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -370,7 +401,9 @@ mod tests {
             source: sender,
             destination: node_id,
             session_id,
-            content: MessageType::Request(RequestType::TextRequest(TextRequest::Text("boh.txt".to_string()))),
+            content: MessageType::Request(RequestType::TextRequest(TextRequest::Text(
+                "boh.txt".to_string(),
+            ))),
         };
 
         let _ = listener_to_logic_tx.send(text_request);
@@ -381,7 +414,9 @@ mod tests {
             source: node_id,
             destination: sender,
             session_id,
-            content: MessageType::Response(ResponseType::TextResponse(TextResponse::NotFound("boh.txt".to_string()))),
+            content: MessageType::Response(ResponseType::TextResponse(TextResponse::NotFound(
+                "boh.txt".to_string(),
+            ))),
         };
 
         assert_eq!(response, expected);
@@ -392,12 +427,14 @@ mod tests {
         let node_id = 0;
         let resources_path = "./res".to_string();
 
-        let (server,
+        let (
+            server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
             command_tx,
             drone_command_tx,
-            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
+            server_to_transmitter_drone_command_rx,
+        ) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -420,17 +457,13 @@ mod tests {
 
         let panic_message = "Wrong response";
         let mut response_media_list = match response.content {
-            MessageType::Response(response) => {
-                match response {
-                    ResponseType::MediaResponse(media_response) => {
-                        match media_response {
-                            MediaResponse::MediaList(list) => list,
-                            _ => panic!("{panic_message}"),
-                        }
-                    },
+            MessageType::Response(response) => match response {
+                ResponseType::MediaResponse(media_response) => match media_response {
+                    MediaResponse::MediaList(list) => list,
                     _ => panic!("{panic_message}"),
-                }
-            }
+                },
+                _ => panic!("{panic_message}"),
+            },
             _ => panic!("{panic_message}"),
         };
         response_media_list.sort();
@@ -445,7 +478,9 @@ mod tests {
             source: sender,
             destination: node_id,
             session_id,
-            content: MessageType::Request(RequestType::MediaRequest(MediaRequest::Media("ferris.png".to_string()))),
+            content: MessageType::Request(RequestType::MediaRequest(MediaRequest::Media(
+                "ferris.png".to_string(),
+            ))),
         };
 
         let _ = listener_to_logic_tx.send(media_request);
@@ -457,7 +492,9 @@ mod tests {
             source: node_id,
             destination: sender,
             session_id,
-            content: MessageType::Response(ResponseType::MediaResponse(MediaResponse::Media(ferris_content))),
+            content: MessageType::Response(ResponseType::MediaResponse(MediaResponse::Media(
+                ferris_content,
+            ))),
         };
 
         assert_eq!(response, expected);
@@ -468,12 +505,14 @@ mod tests {
         let node_id = 0;
         let resources_path = "./res".to_string();
 
-        let (server,
+        let (
+            server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
             command_tx,
             drone_command_tx,
-            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
+            server_to_transmitter_drone_command_rx,
+        ) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -489,7 +528,9 @@ mod tests {
             source: sender,
             destination: node_id,
             session_id,
-            content: MessageType::Request(RequestType::MediaRequest(MediaRequest::Media("boh.png".to_string()))),
+            content: MessageType::Request(RequestType::MediaRequest(MediaRequest::Media(
+                "boh.png".to_string(),
+            ))),
         };
 
         let _ = listener_to_logic_tx.send(media_request);
@@ -500,7 +541,9 @@ mod tests {
             source: node_id,
             destination: sender,
             session_id,
-            content: MessageType::Response(ResponseType::MediaResponse(MediaResponse::NotFound("boh.png".to_string()))),
+            content: MessageType::Response(ResponseType::MediaResponse(MediaResponse::NotFound(
+                "boh.png".to_string(),
+            ))),
         };
 
         assert_eq!(response, expected);
@@ -511,12 +554,14 @@ mod tests {
         let node_id = 0;
         let resources_path = "./res".to_string();
 
-        let (server,
+        let (
+            server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
             command_tx,
             drone_command_tx,
-            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
+            server_to_transmitter_drone_command_rx,
+        ) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -540,7 +585,9 @@ mod tests {
             source: node_id,
             destination: sender,
             session_id: 0,
-            content: MessageType::Error(ErrorType::Unsupported(RequestType::ChatRequest(ChatRequest::ClientList))),
+            content: MessageType::Error(ErrorType::Unsupported(RequestType::ChatRequest(
+                ChatRequest::ClientList,
+            ))),
         };
         assert_eq!(response, expected);
     }
@@ -550,12 +597,14 @@ mod tests {
         let node_id = 0;
         let resources_path = "./res".to_string();
 
-        let (server,
+        let (
+            server,
             logic_to_transmitter_rx,
             listener_to_logic_tx,
             command_tx,
             drone_command_tx,
-            server_to_transmitter_drone_command_rx) = create_content_server(node_id, resources_path.clone());
+            server_to_transmitter_drone_command_rx,
+        ) = create_content_server(node_id, resources_path.clone());
 
         let server = Arc::new(Mutex::new(server));
         let server_clone = server.clone();
@@ -579,7 +628,9 @@ mod tests {
             source: node_id,
             destination: sender,
             session_id: 0,
-            content: MessageType::Response(ResponseType::DiscoveryResponse(ServerType::ContentServer)),
+            content: MessageType::Response(ResponseType::DiscoveryResponse(
+                ServerType::ContentServer,
+            )),
         };
         assert_eq!(response, expected);
     }

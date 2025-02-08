@@ -1,16 +1,16 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::{panic, thread};
-use std::time::Duration;
+use crate::logic::{CommunicationServer, ContentServer, Getter, Server, ServerCommand};
+use ap_listener::{Command as ListenerCommand, Listener};
+use ap_sc_notifier::SimulationControllerNotifier;
+use ap_transmitter::{Command as TransmitterCommand, Transmitter};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use messages::node_event::NodeEvent;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use std::{panic, thread};
+use wg_2024::controller::DroneCommand;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
-use ap_transmitter::{Transmitter, Command as TransmitterCommand};
-use ap_sc_notifier::SimulationControllerNotifier;
-use ap_listener::{Listener, Command as ListenerCommand};
-use wg_2024::controller::DroneCommand;
-use crate::logic::{ServerCommand, CommunicationServer, ContentServer, Getter, Server};
 
 mod logic;
 
@@ -47,7 +47,8 @@ impl DibServer {
         let (logic_to_transmitter_tx, logic_to_transmitter_rx) = unbounded();
         let (listener_command_tx, listener_command_rx) = unbounded();
 
-        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier =
+            SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
         let (transmitter_command_tx, transmitter_command_rx) = unbounded();
@@ -122,7 +123,8 @@ impl DibServer {
         let (logic_to_transmitter_tx, logic_to_transmitter_rx) = unbounded();
         let (listener_command_tx, listener_command_rx) = unbounded();
 
-        let simulation_controller_notifier = SimulationControllerNotifier::new(simulation_controller_tx);
+        let simulation_controller_notifier =
+            SimulationControllerNotifier::new(simulation_controller_tx);
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
         let (transmitter_command_tx, transmitter_command_rx) = unbounded();
@@ -136,7 +138,7 @@ impl DibServer {
             simulation_controller_notifier.clone(),
             transmitter_command_rx,
             Duration::from_secs(60),
-            drone_command_rx
+            drone_command_rx,
         );
 
         let listener = Listener::new(
@@ -259,7 +261,12 @@ pub trait DibServerTrait: DibGetter {
                 };
                 listener.run();
             })
-            .unwrap_or_else(|_| panic!("Cannot spawn a new thread 'server_{}_listener'", self.get_node_id()));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Cannot spawn a new thread 'server_{}_listener'",
+                    self.get_node_id()
+                )
+            });
 
         let transmitter = self.get_transmitter().clone();
         let transmitter_handle = thread::Builder::new()
@@ -273,7 +280,12 @@ pub trait DibServerTrait: DibGetter {
                 };
                 transmitter.run();
             })
-            .unwrap_or_else(|_| panic!("Cannot spawn a new thread 'server_{}_transmitter'", self.get_node_id()));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Cannot spawn a new thread 'server_{}_transmitter'",
+                    self.get_node_id()
+                )
+            });
 
         let logic = self.get_logic().clone();
         let server_logic_handle = thread::Builder::new()
@@ -287,37 +299,37 @@ pub trait DibServerTrait: DibGetter {
                 };
                 logic.run();
             })
-            .unwrap_or_else(|_| panic!("Cannot spawn a new thread 'server_{}_logic'", self.get_node_id()));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Cannot spawn a new thread 'server_{}_logic'",
+                    self.get_node_id()
+                )
+            });
 
         #[allow(clippy::never_loop)]
         'command_loop: loop {
             let command = self.get_command_rx().recv();
             match command {
-                Ok(command) => {
-                    match command {
-                        Command::Quit => {
-                            let command = ListenerCommand::Quit;
-                            self
-                                .get_listener_tx()
-                                .send(command)
-                                .unwrap_or_else(|_| panic!("Cannot communicate with listener thread"));
-        
-                            let command = ServerCommand::Quit;
-                            self
-                                .get_logic_tx()
-                                .send(command)
-                                .unwrap_or_else(|_| panic!("Cannot communicate with logic thread"));
+                Ok(command) => match command {
+                    Command::Quit => {
+                        let command = ListenerCommand::Quit;
+                        self.get_listener_tx()
+                            .send(command)
+                            .unwrap_or_else(|_| panic!("Cannot communicate with listener thread"));
 
-                            let command = TransmitterCommand::Quit;
-                            self
-                                .get_transmitter_tx()
-                                .send(command)
-                                .unwrap_or_else(|_| panic!("Cannot communicate with transmitter thread"));
+                        let command = ServerCommand::Quit;
+                        self.get_logic_tx()
+                            .send(command)
+                            .unwrap_or_else(|_| panic!("Cannot communicate with logic thread"));
 
-                            break 'command_loop
-                        },
+                        let command = TransmitterCommand::Quit;
+                        self.get_transmitter_tx().send(command).unwrap_or_else(|_| {
+                            panic!("Cannot communicate with transmitter thread")
+                        });
+
+                        break 'command_loop;
                     }
-                }
+                },
                 Err(error) => {
                     let error = format!("Error while receiving Command's. Error: {error:?}");
                     log::error!("{error}");
@@ -332,4 +344,4 @@ pub trait DibServerTrait: DibGetter {
     }
 }
 
-impl DibServerTrait for DibServer { }
+impl DibServerTrait for DibServer {}

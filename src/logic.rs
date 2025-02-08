@@ -1,11 +1,11 @@
 mod communication_server;
 mod content_server;
 
+pub use crate::logic::communication_server::CommunicationServer;
+pub use crate::logic::content_server::ContentServer;
 use crossbeam_channel::{select, Receiver, Sender};
 use messages::{ErrorType, Message, MessageType, RequestType, ResponseType};
 use wg_2024::network::NodeId;
-pub use crate::logic::communication_server::CommunicationServer;
-pub use crate::logic::content_server::ContentServer;
 
 pub enum ServerCommand {
     Quit,
@@ -65,7 +65,7 @@ pub trait Server: Getter + Send {
     }
 
     /// Processes a received `RequestType`
-    fn process_request(&mut self, session_id: u64, source: NodeId,request_type: &RequestType);
+    fn process_request(&mut self, session_id: u64, source: NodeId, request_type: &RequestType);
 
     /// Processes a received `ResponseType`
     fn process_response(&self, session_id: u64, source_id: NodeId, response_type: &ResponseType) {
@@ -76,16 +76,23 @@ pub trait Server: Getter + Send {
 
     /// Processes a received `ErrorType`. There is not much to do, so the error just gets logged and then ignored
     fn process_error(&self, session_id: u64, source_id: NodeId, error_type: &ErrorType) {
-        log::warn!("From node {source_id} with session_id {session_id}, received error {error_type:?}");
+        log::warn!(
+            "From node {source_id} with session_id {session_id}, received error {error_type:?}"
+        );
     }
 
     /// Creates a `Message` with the passed arguments
-    fn create_message(&self, session_id: u64, destination: NodeId, content: MessageType) -> Message {
+    fn create_message(
+        &self,
+        session_id: u64,
+        destination: NodeId,
+        content: MessageType,
+    ) -> Message {
         Message {
             source: self.get_node_id(),
             destination,
             session_id,
-            content
+            content,
         }
     }
 
@@ -94,7 +101,7 @@ pub trait Server: Getter + Send {
     /// Panics if the communication fails
     fn send_message_to_transmitter(&self, message: Message) {
         match self.get_server_logic_to_transmitter_tx().send(message) {
-            Ok(()) => { }
+            Ok(()) => {}
             Err(error) => {
                 panic!("Logic cannot communicate with transmitter. Error: {error:?}");
             }
