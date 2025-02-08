@@ -23,3 +23,6 @@ Cargo.lock
 # Added by cargo
 
 /target
+
+# Uncomment the following line to avoid tracking the res folder used by the content server
+# res/
