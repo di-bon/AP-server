@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::{panic, thread};
 use std::time::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use messages::node_event::NodeEvent;
@@ -35,7 +35,7 @@ pub struct DibServer {
 impl DibServer {
     /// Return a new instance of `DibServer` implementing a `ContentServer`
     /// # Panics
-    /// Panics if `Transmitter`, `Listener` and `ServerLogic` do not share the same `node_id`
+    /// Panics if `Transmitter`, `Listener` and `ContentServer` do not share the same `node_id`
     #[must_use]
     pub fn new_content_server(
         node_id: NodeId,
@@ -55,8 +55,6 @@ impl DibServer {
 
         let (transmitter_command_tx, transmitter_command_rx) = unbounded();
 
-        // let (server_to_transmitter_drone_command_tx, server_to_transmitter_drone_command_rx) = unbounded();
-
         let transmitter = Transmitter::new(
             node_id,
             NodeType::Server,
@@ -67,7 +65,6 @@ impl DibServer {
             transmitter_command_rx,
             Duration::from_secs(60),
             drone_command_rx,
-            // server_to_transmitter_drone_command_rx
         );
 
         let listener = Listener::new(
@@ -87,8 +84,6 @@ impl DibServer {
             listener_to_server_logic_rx,
             server_command_rx,
             resource_path,
-            // drone_command_rx,
-            // server_to_transmitter_drone_command_tx,
         );
 
         assert_eq!(transmitter.get_node_id(), listener.get_node_id());
@@ -108,7 +103,6 @@ impl DibServer {
             logic_command_tx: server_command_tx,
             transmitter,
             transmitter_command_tx,
-            // drone_command_rx,
             command_rx,
         };
 
@@ -117,7 +111,7 @@ impl DibServer {
 
     /// Return a new instance of `DibServer` implementing a `CommunicationServer`
     /// # Panics
-    /// Panics if `Transmitter`, `Listener` and `ServerLogic` do not share the same `node_id`
+    /// Panics if `Transmitter`, `Listener` and `CommunicationServer` do not share the same `node_id`
     #[must_use]
     pub fn new_communication_server(
         node_id: NodeId,
@@ -135,8 +129,6 @@ impl DibServer {
         let simulation_controller_notifier = Arc::new(simulation_controller_notifier);
 
         let (transmitter_command_tx, transmitter_command_rx) = unbounded();
-
-        // let (server_to_transmitter_drone_command_tx, server_to_transmitter_drone_command_rx) = unbounded();
 
         let transmitter = Transmitter::new(
             node_id,
@@ -166,8 +158,6 @@ impl DibServer {
             logic_to_transmitter_tx,
             listener_to_server_logic_rx,
             logic_command_rx,
-            // drone_command_rx,
-            // server_to_transmitter_drone_command_tx
         );
 
         assert_eq!(transmitter.get_node_id(), listener.get_node_id());
@@ -191,18 +181,24 @@ impl DibServer {
         };
 
         (result, command_tx)
-        // result
     }
 }
 
 pub trait DibGetter {
     fn get_node_id(&self) -> NodeId;
+
     fn get_listener(&self) -> Arc<Mutex<Listener>>;
+
     fn get_listener_tx(&self) -> &Sender<ListenerCommand>;
+
     fn get_logic(&self) -> Arc<Mutex<dyn Server>>;
+
     fn get_logic_tx(&self) -> &Sender<ServerCommand>;
+
     fn get_transmitter(&self) -> Arc<Mutex<Transmitter>>;
+
     fn get_transmitter_tx(&self) -> &Sender<TransmitterCommand>;
+
     fn get_command_rx(&self) -> &Receiver<Command>;
 }
 
@@ -227,10 +223,6 @@ impl DibGetter for DibServer {
         &self.logic_command_tx
     }
 
-    // fn get_logic_tx(&self) -> &Sender<Command> {
-    //     &self.logic_command_tx
-    // }
-
     fn get_transmitter(&self) -> Arc<Mutex<Transmitter>> {
         self.transmitter.clone()
     }
@@ -251,6 +243,12 @@ pub trait DibServerTrait: DibGetter {
     /// - Panics if the listener thread cannot acquire the lock on the listener
     /// - Panics if the server logic thread cannot acquire the lock on the server logic
     fn run(&mut self) {
+        panic::set_hook(Box::new(|info| {
+            let panic_msg = format!("Panic occurred: {info}");
+            log::error!("{panic_msg}");
+            eprintln!("{panic_msg}");
+        }));
+
         let listener = self.get_listener().clone();
 
         let listener_handle = thread::Builder::new()
@@ -259,7 +257,6 @@ pub trait DibServerTrait: DibGetter {
                 let mut listener = match listener.lock() {
                     Ok(listener) => listener,
                     Err(err) => {
-                        log::error!("Error while starting listener: {err:?}");
                         panic!("Error while starting listener: {err:?}");
                     }
                 };
@@ -273,7 +270,6 @@ pub trait DibServerTrait: DibGetter {
                 let mut transmitter = match transmitter.lock() {
                     Ok(transmitter) => transmitter,
                     Err(err) => {
-                        log::error!("Error while starting transmitter: {err:?}");
                         panic!("Error while starting transmitter: {err:?}");
                     }
                 };
@@ -287,7 +283,6 @@ pub trait DibServerTrait: DibGetter {
                 let mut logic = match logic.lock() {
                     Ok(logic) => logic,
                     Err(err) => {
-                        log::error!("Error while starting logic: {err:?}");
                         panic!("Error while starting logic: {err:?}");
                     }
                 };
@@ -337,4 +332,4 @@ pub trait DibServerTrait: DibGetter {
     }
 }
 
-impl DibServerTrait for DibServer {}
+impl DibServerTrait for DibServer { }

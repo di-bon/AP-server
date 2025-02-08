@@ -14,8 +14,6 @@ pub struct ContentServer {
     text_resources: Vec<String>,
     media_resources: Vec<String>,
     resources_path: String,
-    // drone_command_rx: Receiver<DroneCommand>,
-    // server_to_transmitter_drone_command_tx: Sender<DroneCommand>,
 }
 
 impl Getter for ContentServer {
@@ -34,17 +32,10 @@ impl Getter for ContentServer {
     fn get_server_logic_to_transmitter_tx(&self) -> &Sender<Message> {
         &self.server_logic_to_transmitter_tx
     }
-
-    // fn get_drone_command_rx(&self) -> &Receiver<DroneCommand> {
-    //     &self.drone_command_rx
-    // }
-    //
-    // fn get_logic_to_transmitter_drone_command_tx(&self) -> &Sender<DroneCommand> {
-    //     &self.server_to_transmitter_drone_command_tx
-    // }
 }
 
 impl Server for ContentServer {
+    /// Processes a received RequestType
     fn process_request(&mut self, session_id: u64, source: NodeId, request_type: &RequestType) {
         match request_type {
             RequestType::TextRequest(text_request) => {
@@ -74,8 +65,6 @@ impl ContentServer {
         listener_to_server_logic_rx: Receiver<Message>,
         command_rx: Receiver<ServerCommand>,
         resources_path: String,
-        // drone_command_rx: Receiver<DroneCommand>,
-        // server_to_transmitter_drone_command_tx: Sender<DroneCommand>,
     ) -> Self {
         let mut result = Self {
             node_id,
@@ -85,13 +74,12 @@ impl ContentServer {
             text_resources: vec![],
             media_resources: vec![],
             resources_path,
-            // drone_command_rx,
-            // server_to_transmitter_drone_command_tx,
         };
         result.update_resources();
         result
     }
 
+    /// Updates the available resources found at self.resources_path
     fn update_resources(&mut self) {
         let text_resources = Self::get_available_files(&self.resources_path, "txt").unwrap_or_else(|err| {
             log::warn!("No text resources available at {}. Reason: {err:?}", self.resources_path);
@@ -105,6 +93,7 @@ impl ContentServer {
         self.media_resources = media_resources;
     }
 
+    /// Processes a TextRequest
     fn process_text_request(&mut self, session_id: u64, source: NodeId, text_request: &TextRequest) {
         let content = match text_request {
             TextRequest::TextList => {
@@ -146,16 +135,19 @@ impl ContentServer {
         self.send_message_to_transmitter(message);
     }
 
+    /// Reads a file and returns its content as String
     fn read_file(&self, filename: &str) -> std::io::Result<String> {
         let file_path = Path::new(&self.resources_path).join(filename);
         fs::read_to_string(file_path)
     }
 
+    /// Reads a file and returns its content as bytes
     fn read_file_as_bytes(&self, filename: &str) -> std::io::Result<Vec<u8>> {
         let file_path = Path::new(&self.resources_path).join(filename);
         fs::read(file_path)
     }
 
+    /// Processes a MediaRequest
     fn process_media_request(&mut self, session_id: u64, source: NodeId, media_request: &MediaRequest) {
         let content = match media_request {
             MediaRequest::MediaList => {
@@ -197,6 +189,7 @@ impl ContentServer {
         self.send_message_to_transmitter(message);
     }
 
+    /// Returns all the files with the required extension in self.resources_path
     fn get_available_files(path: &str, required_extension: &str) -> std::io::Result<Vec<String>> {
         let path = Path::new(&path);
         let mut files = Vec::new();

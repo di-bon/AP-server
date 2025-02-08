@@ -12,8 +12,6 @@ pub struct CommunicationServer {
     server_logic_to_transmitter_tx: Sender<Message>,
     listener_to_server_logic_rx: Receiver<Message>,
     server_command_rx: Receiver<ServerCommand>,
-    // drone_command_rx: Receiver<DroneCommand>,
-    // server_to_transmitter_drone_command_tx: Sender<DroneCommand>,
     registered: HashSet<NodeId>,
 }
 
@@ -33,17 +31,10 @@ impl Getter for CommunicationServer {
     fn get_server_logic_to_transmitter_tx(&self) -> &Sender<Message> {
         &self.server_logic_to_transmitter_tx
     }
-
-    // fn get_drone_command_rx(&self) -> &Receiver<DroneCommand> {
-    //     &self.drone_command_rx
-    // }
-    //
-    // fn get_logic_to_transmitter_drone_command_tx(&self) -> &Sender<DroneCommand> {
-    //     &self.server_to_transmitter_drone_command_tx
-    // }
 }
 
 impl Server for CommunicationServer {
+    /// Processes a RequestType
     fn process_request(&mut self, session_id: u64, source: NodeId, request_type: &RequestType) {
         match request_type {
             RequestType::TextRequest(_)
@@ -71,6 +62,7 @@ impl Server for CommunicationServer {
 
                             return;
                         }
+
                         if !self.is_registered(*to) {
                             let content = MessageType::Error(ErrorType::Unregistered(*to));
                             let message = self.create_message(session_id, *from, content);
@@ -78,10 +70,6 @@ impl Server for CommunicationServer {
 
                             return;
                         }
-
-                        // let message_info = MessageInfo::new(*from, message);
-                        // let mut entry = self.messages.entry(*to).or_insert(Vec::new());
-                        // entry.push(message_info);
 
                         let mut rng = rand::rng();
                         let forward_session_id: u64 = rng.random();
@@ -113,20 +101,17 @@ impl CommunicationServer {
         server_logic_to_transmitter_tx: Sender<Message>,
         listener_to_server_logic_rx: Receiver<Message>,
         command_rx: Receiver<ServerCommand>,
-        // drone_command_rx: Receiver<DroneCommand>,
-        // server_to_transmitter_drone_command_tx: Sender<DroneCommand>,
     ) -> Self {
         Self {
             node_id,
             server_logic_to_transmitter_tx,
             listener_to_server_logic_rx,
             server_command_rx: command_rx,
-            // drone_command_rx,
-            // server_to_transmitter_drone_command_tx,
             registered: HashSet::new(),
         }
     }
 
+    /// Returns whether the given id is registered to the server
     fn is_registered(&self, id: NodeId) -> bool {
         self.registered.contains(&id)
     }
