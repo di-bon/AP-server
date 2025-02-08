@@ -3,7 +3,6 @@ mod content_server;
 
 use crossbeam_channel::{select, Receiver, Sender};
 use messages::{ErrorType, Message, MessageType, RequestType, ResponseType};
-use wg_2024::controller::DroneCommand;
 use wg_2024::network::NodeId;
 pub use crate::logic::communication_server::CommunicationServer;
 pub use crate::logic::content_server::ContentServer;
@@ -17,48 +16,19 @@ pub trait Getter {
     fn get_server_command_rx(&self) -> &Receiver<ServerCommand>;
     fn get_listener_to_server_logic_rx(&self) -> &Receiver<Message>;
     fn get_server_logic_to_transmitter_tx(&self) -> &Sender<Message>;
-    // fn get_drone_command_rx(&self) -> &Receiver<DroneCommand>;
-    // fn get_logic_to_transmitter_drone_command_tx(&self) -> &Sender<DroneCommand>;
 }
 
 pub trait Server: Getter + Send {
+    /// Starts the server, making it able to receive and send `Message`s
     fn run(&mut self) {
         loop {
             select! {
-                /*
-                recv(self.get_drone_command_rx()) -> drone_command => {
-                    if let Ok(drone_command) = drone_command {
-                        match drone_command {
-                            DroneCommand::AddSender(_, _)
-                            | DroneCommand::RemoveSender(_) => {
-                                self
-                                    .get_logic_to_transmitter_drone_command_tx()
-                                    .send(drone_command)
-                                    .expect("Cannot send DroneCommand to transmitter");
-                            },
-                            DroneCommand::SetPacketDropRate(_)
-                            | DroneCommand::Crash => {
-                                panic!("Received unsupported {drone_command:?}");
-                            }
-                        }
-                    }
-                    panic!("Error while receiving DroneCommand");
-                },
-                 */
                 recv(self.get_server_command_rx()) -> command => {
                     if let Ok(command) = command {
                         match command {
                             ServerCommand::Quit => {
                                 break;
                             },
-                            /*
-                            Command::RemoveNeighbor(node_id) => {
-
-                            },
-                            Command::AddNeighbor(node_id, channel) => {
-
-                            }
-                             */
                         }
                     }
                     panic!("Error while receiving ServerLogicCommand");
@@ -73,7 +43,11 @@ pub trait Server: Getter + Send {
             }
         }
     }
+
+    /// Processes a received `Message`
     fn process_message(&mut self, message: &Message) {
+        log::info!("Received message {message:?}");
+
         let session_id = message.session_id;
         let source = message.source;
 
@@ -89,15 +63,23 @@ pub trait Server: Getter + Send {
             }
         }
     }
+
+    /// Processes a received `RequestType`
     fn process_request(&mut self, session_id: u64, source: NodeId,request_type: &RequestType);
+
+    /// Processes a received `ResponseType`
     fn process_response(&self, session_id: u64, source_id: NodeId, response_type: &ResponseType) {
         let content = MessageType::Error(ErrorType::Unexpected(response_type.clone()));
         let response = self.create_message(session_id, source_id, content);
         self.send_message_to_transmitter(response);
     }
+
+    /// Processes a received `ErrorType`. There is not much to do, so the error just gets logged and then ignored
     fn process_error(&self, session_id: u64, source_id: NodeId, error_type: &ErrorType) {
         log::warn!("From node {source_id} with session_id {session_id}, received error {error_type:?}");
     }
+
+    /// Creates a `Message` with the passed arguments
     fn create_message(&self, session_id: u64, destination: NodeId, content: MessageType) -> Message {
         Message {
             source: self.get_node_id(),
@@ -106,13 +88,15 @@ pub trait Server: Getter + Send {
             content
         }
     }
+
+    /// Sends a `Message` to `Transmitter`
+    /// # Panics
+    /// Panics if the communication fails
     fn send_message_to_transmitter(&self, message: Message) {
         match self.get_server_logic_to_transmitter_tx().send(message) {
             Ok(()) => { }
             Err(error) => {
-                let error = format!("Logic cannot communicate with transmitter. Error: {error:?}");
-                log::error!("{}", error);
-                panic!("{}", error);
+                panic!("Logic cannot communicate with transmitter. Error: {error:?}");
             }
         }
     }

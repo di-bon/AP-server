@@ -16,8 +16,6 @@ mod logic;
 
 pub enum Command {
     Quit,
-    // AddNeighbor(NodeId, Sender<Packet>),
-    // RemoveNeighbor(NodeId),
 }
 
 pub struct DibServer {
@@ -28,7 +26,6 @@ pub struct DibServer {
     logic_command_tx: Sender<ServerCommand>,
     transmitter: Arc<Mutex<Transmitter>>,
     transmitter_command_tx: Sender<TransmitterCommand>,
-    // drone_command_rx: Receiver<DroneCommand>,
     command_rx: Receiver<Command>,
 }
 
@@ -261,7 +258,8 @@ pub trait DibServerTrait: DibGetter {
                     }
                 };
                 listener.run();
-            }).unwrap();
+            })
+            .unwrap_or_else(|_| panic!("Cannot spawn a new thread 'server_{}_listener'", self.get_node_id()));
 
         let transmitter = self.get_transmitter().clone();
         let transmitter_handle = thread::Builder::new()
@@ -274,7 +272,8 @@ pub trait DibServerTrait: DibGetter {
                     }
                 };
                 transmitter.run();
-            }).unwrap();
+            })
+            .unwrap_or_else(|_| panic!("Cannot spawn a new thread 'server_{}_transmitter'", self.get_node_id()));
 
         let logic = self.get_logic().clone();
         let server_logic_handle = thread::Builder::new()
@@ -287,8 +286,10 @@ pub trait DibServerTrait: DibGetter {
                     }
                 };
                 logic.run();
-            }).unwrap();
+            })
+            .unwrap_or_else(|_| panic!("Cannot spawn a new thread 'server_{}_logic'", self.get_node_id()));
 
+        #[allow(clippy::never_loop)]
         'command_loop: loop {
             let command = self.get_command_rx().recv();
             match command {
@@ -296,26 +297,25 @@ pub trait DibServerTrait: DibGetter {
                     match command {
                         Command::Quit => {
                             let command = ListenerCommand::Quit;
-                            self.get_listener_tx().send(command).expect("Cannot communicate with listener thread");
-
+                            self
+                                .get_listener_tx()
+                                .send(command)
+                                .unwrap_or_else(|_| panic!("Cannot communicate with listener thread"));
+        
                             let command = ServerCommand::Quit;
-                            self.get_logic_tx().send(command).expect("Cannot communicate with logic thread");
+                            self
+                                .get_logic_tx()
+                                .send(command)
+                                .unwrap_or_else(|_| panic!("Cannot communicate with logic thread"));
 
                             let command = TransmitterCommand::Quit;
-                            self.get_transmitter_tx().send(command).expect("Cannot communicate with transmitter thread");
+                            self
+                                .get_transmitter_tx()
+                                .send(command)
+                                .unwrap_or_else(|_| panic!("Cannot communicate with transmitter thread"));
 
                             break 'command_loop
                         },
-                        /*
-                        Command::AddNeighbor(node_id, channel) => {
-                            let command = TransmitterCommand::AddNeighbor(node_id, channel);
-                            self.get_transmitter_tx().send(command).expect("Cannot communicate with transmitter thread");
-                        },
-                        Command::RemoveNeighbor(node_id) => {
-                            let command = TransmitterCommand::RemoveNeighbor(node_id);
-                            self.get_transmitter_tx().send(command).expect("Cannot communicate with transmitter thread");
-                        },
-                         */
                     }
                 }
                 Err(error) => {

@@ -1,4 +1,4 @@
-// #![allow(unused_variables)]
+#![allow(unused_variables)]
 
 use std::collections::HashMap;
 use std::thread;
@@ -6,10 +6,9 @@ use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use messages::{ChatRequest, ChatResponse, ErrorType, MediaRequest, Message, MessageType, MessageUtilities, RequestType, ResponseType, TextResponse};
-use messages::node_event::NodeEvent;
 use ntest::timeout;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{Ack, FloodResponse, NodeType, Packet, PacketType};
+use wg_2024::packet::{Packet, PacketType};
 use ap_server::{DibServer, DibGetter, DibServerTrait, Command};
 use crate::common::{process_initial_flood_requests, send_message_and_receive_acks};
 

@@ -2,7 +2,6 @@ use std::fs;
 use std::path::Path;
 use crossbeam_channel::{Receiver, Sender};
 use messages::{ErrorType, MediaRequest, MediaResponse, Message, MessageType, RequestType, ResponseType, ServerType, TextRequest, TextResponse};
-use wg_2024::controller::DroneCommand;
 use wg_2024::network::NodeId;
 use crate::logic::{Getter, Server, ServerCommand as ServerCommand};
 
@@ -35,7 +34,7 @@ impl Getter for ContentServer {
 }
 
 impl Server for ContentServer {
-    /// Processes a received RequestType
+    /// Processes a received `RequestType`
     fn process_request(&mut self, session_id: u64, source: NodeId, request_type: &RequestType) {
         match request_type {
             RequestType::TextRequest(text_request) => {
@@ -79,7 +78,7 @@ impl ContentServer {
         result
     }
 
-    /// Updates the available resources found at self.resources_path
+    /// Updates the available resources found at `self.resources_path`
     fn update_resources(&mut self) {
         let text_resources = Self::get_available_files(&self.resources_path, "txt").unwrap_or_else(|err| {
             log::warn!("No text resources available at {}. Reason: {err:?}", self.resources_path);
@@ -93,7 +92,7 @@ impl ContentServer {
         self.media_resources = media_resources;
     }
 
-    /// Processes a TextRequest
+    /// Processes a `TextRequest`
     fn process_text_request(&mut self, session_id: u64, source: NodeId, text_request: &TextRequest) {
         let content = match text_request {
             TextRequest::TextList => {
@@ -135,19 +134,19 @@ impl ContentServer {
         self.send_message_to_transmitter(message);
     }
 
-    /// Reads a file and returns its content as String
+    /// Reads a file found at `self.resources_path/filename` and returns its content as `String`
     fn read_file(&self, filename: &str) -> std::io::Result<String> {
         let file_path = Path::new(&self.resources_path).join(filename);
         fs::read_to_string(file_path)
     }
 
-    /// Reads a file and returns its content as bytes
+    /// Reads a file found at `self.resources_path/filename` and returns its content as bytes
     fn read_file_as_bytes(&self, filename: &str) -> std::io::Result<Vec<u8>> {
         let file_path = Path::new(&self.resources_path).join(filename);
         fs::read(file_path)
     }
 
-    /// Processes a MediaRequest
+    /// Processes a `MediaRequest`
     fn process_media_request(&mut self, session_id: u64, source: NodeId, media_request: &MediaRequest) {
         let content = match media_request {
             MediaRequest::MediaList => {
@@ -189,7 +188,7 @@ impl ContentServer {
         self.send_message_to_transmitter(message);
     }
 
-    /// Returns all the files with the required extension in self.resources_path
+    /// Returns all the files with the required extension in `self.resources_path`
     fn get_available_files(path: &str, required_extension: &str) -> std::io::Result<Vec<String>> {
         let path = Path::new(&path);
         let mut files = Vec::new();
@@ -222,6 +221,7 @@ mod tests {
     use std::thread;
     use crossbeam_channel::unbounded;
     use messages::ChatRequest;
+    use wg_2024::controller::DroneCommand;
     use super::*;
 
     fn create_content_server(node_id: NodeId, resources_path: String) -> (ContentServer, Receiver<Message>, Sender<Message>, Sender<ServerCommand>, Sender<DroneCommand>, Receiver<DroneCommand>) {

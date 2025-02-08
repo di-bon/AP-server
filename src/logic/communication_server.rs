@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use crossbeam_channel::{Receiver, Sender};
 use messages::{ChatRequest, ChatResponse, ErrorType, Message, MessageType, RequestType, ResponseType, ServerType};
 use rand::Rng;
-use wg_2024::controller::DroneCommand;
 use wg_2024::network::NodeId;
 use crate::logic::{ServerCommand as ServerCommand, Getter, Server};
 
@@ -34,7 +33,7 @@ impl Getter for CommunicationServer {
 }
 
 impl Server for CommunicationServer {
-    /// Processes a RequestType
+    /// Processes a `RequestType`
     fn process_request(&mut self, session_id: u64, source: NodeId, request_type: &RequestType) {
         match request_type {
             RequestType::TextRequest(_)
@@ -111,7 +110,7 @@ impl CommunicationServer {
         }
     }
 
-    /// Returns whether the given id is registered to the server
+    /// Returns whether the given `id` is registered to the server
     fn is_registered(&self, id: NodeId) -> bool {
         self.registered.contains(&id)
     }
@@ -126,6 +125,7 @@ mod tests {
     use crossbeam_channel::unbounded;
     use messages::MediaRequest;
     use ntest::assert_false;
+    use wg_2024::controller::DroneCommand;
     use super::*;
 
     fn create_communication_server(node_id: NodeId) -> (CommunicationServer, Receiver<Message>, Sender<Message>, Sender<ServerCommand>, Sender<DroneCommand>, Receiver<DroneCommand>) {

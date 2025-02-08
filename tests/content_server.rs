@@ -1,7 +1,6 @@
 #![allow(unused_variables)]
 
 use std::collections::HashMap;
-use std::ptr::read;
 use std::thread;
 use assembler::Assembler;
 use assembler::naive_assembler::NaiveAssembler;
@@ -43,15 +42,6 @@ fn check_text_requests() -> std::thread::Result<()> {
         "./res".to_string(),
         drone_command_rx
     );
-
-    // let mut server = DibServer::new_content_server(
-    //     server_node_id,
-    //     server_public_rx,
-    //     connected_drones,
-    //     server_to_sc_tx,
-    //     "./res".to_string(),
-    //     drone_command_rx
-    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
