@@ -15,7 +15,7 @@ mod common;
 
 #[test]
 #[timeout(2000)]
-fn check_text_requests() -> std::thread::Result<()> {
+fn check_text_requests() -> thread::Result<()> {
     let server_node_id = 0;
 
     let mut connected_drones = HashMap::new();
@@ -127,15 +127,6 @@ fn check_text_not_found() {
         drone_command_rx
     );
 
-    // let mut server = DibServer::new_content_server(
-    //     server_node_id,
-    //     server_public_rx,
-    //     connected_drones,
-    //     server_to_sc_tx,
-    //     "./res".to_string(),
-    //     drone_command_rx
-    // );
-
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
         .spawn(move || {
@@ -155,7 +146,7 @@ fn check_text_not_found() {
         source,
         destination,
         session_id,
-        content: MessageType::Request(RequestType::TextRequest(TextRequest::Text("akndgaksgalsgmalsg.txt".to_string()))),
+        content: MessageType::Request(RequestType::TextRequest(TextRequest::Text("non-existent-text.txt".to_string()))),
     };
 
     send_message_and_receive_acks(server_to_drone_source_rx, &server_public_tx, source, destination, session_id, text_request);
@@ -164,7 +155,7 @@ fn check_text_not_found() {
         source: destination,
         destination: source,
         session_id,
-        content: MessageType::Response(ResponseType::TextResponse(TextResponse::NotFound("akndgaksgalsgmalsg.txt".to_string()))),
+        content: MessageType::Response(ResponseType::TextResponse(TextResponse::NotFound("non-existent-text.txt".to_string()))),
     };
 
     let expected_fragments = NaiveAssembler::disassemble(&expected_response.stringify().into_bytes());
@@ -187,7 +178,7 @@ fn check_text_not_found() {
 
 #[test]
 #[timeout(2000)]
-fn check_media_requests() -> std::thread::Result<()> {
+fn check_media_requests() -> thread::Result<()> {
     let server_node_id = 0;
 
     let mut connected_drones = HashMap::new();
@@ -214,15 +205,6 @@ fn check_media_requests() -> std::thread::Result<()> {
         "./res".to_string(),
         drone_command_rx
     );
-
-    // let mut server = DibServer::new_content_server(
-    //     server_node_id,
-    //     server_public_rx,
-    //     connected_drones,
-    //     server_to_sc_tx,
-    //     "./res".to_string(),
-    //     drone_command_rx
-    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -308,15 +290,6 @@ fn check_media_not_found() {
         drone_command_rx
     );
 
-    // let mut server = DibServer::new_content_server(
-    //     server_node_id,
-    //     server_public_rx,
-    //     connected_drones,
-    //     server_to_sc_tx,
-    //     "./res".to_string(),
-    //     drone_command_rx
-    // );
-
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
         .spawn(move || {
@@ -336,7 +309,7 @@ fn check_media_not_found() {
         source,
         destination,
         session_id,
-        content: MessageType::Request(RequestType::MediaRequest(MediaRequest::Media("akndgaksgalsgmalsg.txt".to_string()))),
+        content: MessageType::Request(RequestType::MediaRequest(MediaRequest::Media("non-existent-media.png".to_string()))),
     };
 
     send_message_and_receive_acks(server_to_drone_source_rx, &server_public_tx, source, destination, session_id, media_request);
@@ -345,7 +318,7 @@ fn check_media_not_found() {
         source: destination,
         destination: source,
         session_id,
-        content: MessageType::Response(ResponseType::MediaResponse(MediaResponse::NotFound("akndgaksgalsgmalsg.txt".to_string()))),
+        content: MessageType::Response(ResponseType::MediaResponse(MediaResponse::NotFound("non-existent-media.png".to_string()))),
     };
 
     let expected_fragments = NaiveAssembler::disassemble(&expected_response.stringify().into_bytes());
@@ -368,7 +341,7 @@ fn check_media_not_found() {
 
 #[test]
 #[timeout(2000)]
-fn check_unsupported_request() -> std::thread::Result<()> {
+fn check_unsupported_request() -> thread::Result<()> {
     let server_node_id = 0;
 
     let mut connected_drones = HashMap::new();
@@ -395,15 +368,6 @@ fn check_unsupported_request() -> std::thread::Result<()> {
         "./res".to_string(),
         drone_command_rx
     );
-
-    // let mut server = DibServer::new_content_server(
-    //     server_node_id,
-    //     server_public_rx,
-    //     connected_drones,
-    //     server_to_sc_tx,
-    //     "./res".to_string(),
-    //     drone_command_rx
-    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -461,7 +425,7 @@ fn check_unsupported_request() -> std::thread::Result<()> {
 
 #[test]
 #[timeout(2000)]
-fn check_unexpected_message() -> std::thread::Result<()> {
+fn check_unexpected_message() -> thread::Result<()> {
     let server_node_id = 0;
 
     let mut connected_drones = HashMap::new();
@@ -488,15 +452,6 @@ fn check_unexpected_message() -> std::thread::Result<()> {
         "./res".to_string(),
         drone_command_rx
     );
-
-    // let mut server = DibServer::new_content_server(
-    //     server_node_id,
-    //     server_public_rx,
-    //     connected_drones,
-    //     server_to_sc_tx,
-    //     "./res".to_string(),
-    //     drone_command_rx
-    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -554,7 +509,7 @@ fn check_unexpected_message() -> std::thread::Result<()> {
 
 #[test]
 #[timeout(2000)]
-fn check_error_processing() -> std::thread::Result<()> {
+fn check_error_processing() -> thread::Result<()> {
     let server_node_id = 0;
 
     let mut connected_drones = HashMap::new();
@@ -581,15 +536,6 @@ fn check_error_processing() -> std::thread::Result<()> {
         "./res".to_string(),
         drone_command_rx
     );
-
-    // let mut server = DibServer::new_content_server(
-    //     server_node_id,
-    //     server_public_rx,
-    //     connected_drones,
-    //     server_to_sc_tx,
-    //     "./res".to_string(),
-    //     drone_command_rx
-    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -647,7 +593,7 @@ fn check_error_processing() -> std::thread::Result<()> {
 
 #[test]
 #[timeout(2000)]
-fn check_no_resources_found() -> std::thread::Result<()> {
+fn check_no_resources_found() -> thread::Result<()> {
     let server_node_id = 0;
 
     let mut connected_drones = HashMap::new();

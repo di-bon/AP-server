@@ -140,8 +140,6 @@ mod tests {
             logic_to_transmitter_tx,
             listener_to_logic_rx,
             command_rx,
-            // drone_command_rx,
-            // server_to_transmitter_drone_command_tx
         );
         (server, logic_to_transmitter_rx, listener_to_logic_tx, command_tx, drone_command_tx, server_to_transmitter_drone_command_rx)
     }

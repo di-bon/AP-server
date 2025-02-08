@@ -14,10 +14,9 @@ use crate::common::{process_initial_flood_requests, send_message_and_receive_ack
 
 mod common;
 
-// TODO: check again
 #[test]
 #[timeout(2000)]
-fn check_communication() -> std::thread::Result<()> {
+fn check_communication() -> thread::Result<()> {
     let server_node_id = 0;
 
     let mut connected_drones = HashMap::new();
@@ -43,14 +42,6 @@ fn check_communication() -> std::thread::Result<()> {
         server_to_sc_tx,
         drone_command_rx
     );
-
-    // let mut server = DibServer::new_communication_server(
-    //     server_node_id,
-    //     server_public_rx,
-    //     connected_drones,
-    //     server_to_sc_tx,
-    //     drone_command_rx
-    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("communication_server_{}", server.get_node_id()))
@@ -214,10 +205,10 @@ fn get_client_list(
 
     send_message_and_receive_acks(server_to_source_rx, drones_to_server_tx, source, destination, session_id, request);
 
-    let expexted_packets = NaiveAssembler::disassemble(&expected_message.stringify().into_bytes());
+    let expected_packets = NaiveAssembler::disassemble(&expected_message.stringify().into_bytes());
 
     let mut received_fragments = Vec::new();
-    for _ in 0..expexted_packets.len() {
+    for _ in 0..expected_packets.len() {
         let received_packet = server_to_source_rx.recv().unwrap();
         assert_eq!(received_packet.session_id, session_id);
         assert_eq!(received_packet.routing_header, expected_routing_header);
@@ -252,7 +243,7 @@ fn register_node_id(source: NodeId, destination: NodeId, session_id: u64, drones
 
 #[test]
 #[timeout(2000)]
-fn check_unsupported_request() -> std::thread::Result<()> {
+fn check_unsupported_request() -> thread::Result<()> {
     let server_node_id = 0;
 
     let mut connected_drones = HashMap::new();
@@ -278,14 +269,6 @@ fn check_unsupported_request() -> std::thread::Result<()> {
         server_to_sc_tx,
         drone_command_rx
     );
-
-    // let mut server = DibServer::new_communication_server(
-    //     server_node_id,
-    //     server_public_rx,
-    //     connected_drones,
-    //     server_to_sc_tx,
-    //     drone_command_rx
-    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -343,7 +326,7 @@ fn check_unsupported_request() -> std::thread::Result<()> {
 
 #[test]
 #[timeout(2000)]
-fn check_unexpected_message() -> std::thread::Result<()> {
+fn check_unexpected_message() -> thread::Result<()> {
     let server_node_id = 0;
 
     let mut connected_drones = HashMap::new();
@@ -369,14 +352,6 @@ fn check_unexpected_message() -> std::thread::Result<()> {
         server_to_sc_tx,
         drone_command_rx
     );
-
-    // let mut server = DibServer::new_communication_server(
-    //     server_node_id,
-    //     server_public_rx,
-    //     connected_drones,
-    //     server_to_sc_tx,
-    //     drone_command_rx
-    // );
 
     let server_handler = thread::Builder::new()
         .name(format!("content_server_{}", server.get_node_id()))
@@ -434,7 +409,7 @@ fn check_unexpected_message() -> std::thread::Result<()> {
 
 #[test]
 #[timeout(2000)]
-fn check_error_processing() -> std::thread::Result<()> {
+fn check_error_processing() -> thread::Result<()> {
     let server_node_id = 0;
 
     let mut connected_drones = HashMap::new();
