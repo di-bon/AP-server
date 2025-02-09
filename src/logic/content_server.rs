@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use crate::logic::{Getter, Server, ServerCommand};
 use crossbeam_channel::{Receiver, Sender};
 use messages::{
@@ -86,10 +85,8 @@ impl ContentServer {
 
     /// Updates the available resources found at `self.resources_path`
     fn update_resources(&mut self) {
-        let mut extensions = HashSet::new();
-        extensions.insert("txt");
         let text_resources =
-            Self::get_available_files(&self.resources_path, &extensions).unwrap_or_else(|err| {
+            Self::get_available_files(&self.resources_path, "txt").unwrap_or_else(|err| {
                 log::warn!(
                     "No text resources available at {}. Reason: {err:?}",
                     self.resources_path
@@ -97,10 +94,7 @@ impl ContentServer {
                 vec![]
             });
 
-        let mut extensions = HashSet::new();
-        extensions.insert("png");
-        extensions.insert("jpeg");
-        let media_resources = Self::get_available_files(&self.resources_path, &extensions)
+        let media_resources = Self::get_available_files(&self.resources_path, "png")
             .unwrap_or_else(|err| {
                 log::warn!(
                     "No media resources available at {}. Reason: {err:?}",
@@ -204,7 +198,7 @@ impl ContentServer {
     }
 
     /// Returns all the files with the required extension in `self.resources_path`
-    fn get_available_files(path: &str, required_extension: &HashSet<&str>) -> std::io::Result<Vec<String>> {
+    fn get_available_files(path: &str, required_extension: &str) -> std::io::Result<Vec<String>> {
         let path = Path::new(&path);
         let mut files = Vec::new();
 
@@ -215,11 +209,9 @@ impl ContentServer {
 
                 if file_path.is_file() {
                     if let Some(extension) = file_path.extension() {
-                        if let Some(extension) = extension.to_str() {
-                            if required_extension.contains(extension) {
-                                if let Some(file_name) = file_path.file_name() {
-                                    files.push(file_name.to_string_lossy().into_owned());
-                                }
+                        if *extension == *required_extension {
+                            if let Some(file_name) = file_path.file_name() {
+                                files.push(file_name.to_string_lossy().into_owned());
                             }
                         }
                     }
