@@ -140,9 +140,12 @@ impl ContentServer {
                             ))
                         }
                     },
-                    None => MessageType::Response(ResponseType::TextResponse(
-                        TextResponse::NotFound(requested_file.clone()),
-                    )),
+                    None => {
+                        log::warn!("Text resource not found. {text_request:?}");
+                        MessageType::Response(ResponseType::TextResponse(
+                            TextResponse::NotFound(requested_file.clone()),
+                        ))
+                    },
                 }
             }
         };
