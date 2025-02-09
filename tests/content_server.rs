@@ -71,7 +71,7 @@ fn check_text_requests() -> thread::Result<()> {
         source: destination,
         destination: source,
         session_id,
-        content: MessageType::Response(ResponseType::TextResponse(TextResponse::TextList(vec!["rust.txt".to_string(), "the quacking duck.txt".to_string()]))),
+        content: MessageType::Response(ResponseType::TextResponse(TextResponse::TextList(vec!["rust.txt".to_string(), "the quacking duck.txt".to_string(), "duckduckgo.txt".to_string(),]))),
     };
 
     let expected_fragments = NaiveAssembler::disassemble(&expected_response.stringify().into_bytes());
@@ -234,7 +234,7 @@ fn check_media_requests() -> thread::Result<()> {
         source: destination,
         destination: source,
         session_id,
-        content: MessageType::Response(ResponseType::MediaResponse(MediaResponse::MediaList(vec!["ferris.png".to_string()]))),
+        content: MessageType::Response(ResponseType::MediaResponse(MediaResponse::MediaList(vec!["ferris.png".to_string(), "duck_1.png".to_string(), "duck_3.png".to_string()]))),
     };
 
     let expected_fragments = NaiveAssembler::disassemble(&expected_response.stringify().into_bytes());
