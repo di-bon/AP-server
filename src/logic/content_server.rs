@@ -208,7 +208,7 @@ impl ContentServer {
 
                 if file_path.is_file() {
                     if let Some(extension) = file_path.extension() {
-                        if *extension == *required_extension {
+                        if extension == required_extension {
                             if let Some(file_name) = file_path.file_name() {
                                 files.push(file_name.to_string_lossy().into_owned());
                             }
