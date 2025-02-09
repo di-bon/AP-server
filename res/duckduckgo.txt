@@ -1,0 +1,6 @@
+Duckduckgo is the most ducking search engine in the ducking world!
+{{ duck_1.png }}
+Quack quack
+idk what to write
+{{ duck_3.png }}
+Cheers!
