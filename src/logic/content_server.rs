@@ -93,6 +93,7 @@ impl ContentServer {
                 );
                 vec![]
             });
+
         let media_resources = Self::get_available_files(&self.resources_path, "png")
             .unwrap_or_else(|err| {
                 log::warn!(
@@ -133,9 +134,12 @@ impl ContentServer {
                             ))
                         }
                     },
-                    None => MessageType::Response(ResponseType::TextResponse(
-                        TextResponse::NotFound(requested_file.clone()),
-                    )),
+                    None => {
+                        log::warn!("Text resource not found. {text_request:?}");
+                        MessageType::Response(ResponseType::TextResponse(
+                            TextResponse::NotFound(requested_file.clone()),
+                        ))
+                    },
                 }
             }
         };
@@ -205,7 +209,7 @@ impl ContentServer {
 
                 if file_path.is_file() {
                     if let Some(extension) = file_path.extension() {
-                        if extension == required_extension {
+                        if *extension == *required_extension {
                             if let Some(file_name) = file_path.file_name() {
                                 files.push(file_name.to_string_lossy().into_owned());
                             }
@@ -281,12 +285,12 @@ mod tests {
 
         assert_eq!(server.node_id, node_id);
         let mut expected_text_resources =
-            vec!["the quacking duck.txt".to_string(), "rust.txt".to_string()];
+            vec!["duckduckgo.txt".to_string(), "the quacking duck.txt".to_string(), "rust.txt".to_string()];
         expected_text_resources.sort();
         let mut server_text_resources = server.text_resources.clone();
         server_text_resources.sort();
         assert_eq!(server_text_resources, expected_text_resources);
-        let mut expected_media_resources: Vec<String> = vec!["ferris.png".to_string()];
+        let mut expected_media_resources: Vec<String> = vec!["duck_1.png".to_string(), "duck_3.png".to_string(), "ferris.png".to_string()];
         expected_media_resources.sort();
         let mut server_media_resources = server.media_resources.clone();
         server_media_resources.sort();
@@ -341,7 +345,7 @@ mod tests {
         response_text_list.sort();
 
         let mut expected_text_list =
-            vec!["the quacking duck.txt".to_string(), "rust.txt".to_string()];
+            vec!["duckduckgo.txt".to_string(), "the quacking duck.txt".to_string(), "rust.txt".to_string()];
         expected_text_list.sort();
 
         assert_eq!(response_text_list, expected_text_list);
@@ -468,7 +472,7 @@ mod tests {
         };
         response_media_list.sort();
 
-        let mut expected_media_list = vec!["ferris.png".to_string()];
+        let mut expected_media_list = vec!["duck_1.png".to_string(), "duck_3.png".to_string(), "ferris.png".to_string()];
         expected_media_list.sort();
 
         assert_eq!(response_media_list, expected_media_list);
